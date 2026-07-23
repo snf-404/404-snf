@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Linux build environment for 404-snf, for use with Apple `container` on Apple
+# Silicon (mirrors consortium's Dockerfile.linux).
+#
+# The VM is *native* arm64, so `aarch64-unknown-linux-gnu` (the CA35 app target)
+# is a native build and `Consortium.toml`'s `[profile] sysroot = "/"` resolves to
+# this image's own root — no Yocto SDK, no cross linker for the 64-bit A-core.
+# The CM33 firmware cross-compiles to `thumbv8m.main-none-eabihf`.
+#
+# 404-snf depends on consortium by *path* (`../consortium`), so the container
+# mounts BOTH repos side by side under /work (see the justfile `snf*` recipes).
+
+# Ubuntu 24.04 to match consortium's base (recent GLIBC/libudev/dbus).
+FROM docker.io/library/ubuntu:24.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# build-essential + pkg-config + libssl-dev: baseline Rust/C build.
+# device-tree-compiler: the consortium build pipeline shells out to `gcc -E` + `dtc`.
+# binutils-arm-none-eabi: `arm-none-eabi-objcopy` used to rename `.vector_table`
+#   to the remoteproc-expected `.isr_vectors` for the CM33 firmware image.
+# libdbus-1-dev: `snf-ble` -> `bluer` -> dbus, needs the D-Bus dev headers.
+# libudev-dev: `snf-radar` -> `tokio-serial` -> `serialport`, needs libudev on Linux.
+# clang/libclang-dev: back any bindgen in consortium build dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git pkg-config build-essential \
+      libssl-dev device-tree-compiler binutils-arm-none-eabi \
+      clang libclang-dev libdbus-1-dev libudev-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+# /cargo-registry/bin is the mounted cargo volume; a `csti` installed there
+# (see `just container-csti-install`) must be on PATH.
+ENV PATH=/cargo-registry/bin:/usr/local/cargo/bin:$PATH
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
+      --default-toolchain stable \
+      --target aarch64-unknown-linux-gnu \
+      --target thumbv8m.main-none-eabihf \
+    && rustup component add rust-src llvm-tools
+
+WORKDIR /work/404-snf

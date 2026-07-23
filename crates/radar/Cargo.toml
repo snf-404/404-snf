@@ -2,28 +2,20 @@
 
 [package]
 name              = "snf-radar"
-description       = "IWR6843 mmWave upper layer: tokio-serial transport + cxx bridge to the TI mmWave SDK parser"
+description       = "Pure-Rust IWR6843 mmWave UART transport and TLV parser"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [features]
-# Default builds a pure-Rust stub parser so `cargo check` needs no C++ toolchain
-# or vendor SDK. Enable `sdk` to compile the `cxx` bridge against the TI mmWave
-# SDK (point `MMWAVE_SDK_PATH` at the SDK root); the SDK does the raw TLV parse
-# and everything else stays in Rust.
 default = []
-sdk     = ["dep:cxx", "dep:cxx-build"]
+vital-signs = []
 
 [dependencies]
 tokio        = { version = "1", features = ["rt", "macros", "sync", "io-util"] }
 tokio-serial = "5"
 serde        = { version = "1", features = ["derive"] }
-cxx          = { version = "1", optional = true }
-
-[build-dependencies]
-cxx-build = { version = "1", optional = true }
 
 [lints]
 workspace = true

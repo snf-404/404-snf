@@ -1,0 +1,1186 @@
+Academic Editor:
+Christian Baumgartner
+Received: 31 July 2025
+Revised: 1 September 2025
+Accepted: 2 September 2025
+Published: 8 September 2025
+Citation: Cui, G.; Wang, Y.; Zhang, X.;
+Li, J.; Liu, X.; Li, B.; Wang, J.; Zhang, Q.
+Non-Contact Heart Rate Variability
+Monitoring with FMCW Radar via a
+Novel Signal Processing Algorithm.
+Sensors 2025, 25, 5607. https://
+doi.org/10.3390/s25175607
+Copyright: © 2025 by the authors.
+Licensee MDPI, Basel, Switzerland.
+This article is an open access article
+distributed under the terms and
+conditions of the Creative Commons
+Attribution (CC BY) license
+(https://creativecommons.org/
+licenses/by/4.0/).
+Article
+Non-Contact Heart Rate Variability Monitoring with FMCW
+Radar via a Novel Signal Processing Algorithm
+Guangyu Cui, Yujie Wang
+ , Xinyi Zhang, Jiale Li, Xinfeng Liu, Bijie Li, Jiayi Wang and Quan Zhang *
+School of Information and Communication Engineering, North University of China, Taiyuan 030051, China;
+13848982614@163.com (G.C.); wangyujie2512@163.com (Y.W.); 15340650581@163.com (X.Z.);
+15340682084@163.com (J.L.); lxf18735060428@163.com (X.L.); sz202405009@st.nuc.edu.cn (B.L.);
+18295706140@163.com (J.W.)
+* Correspondence: zhangibmet@nuc.edu.cn
+Abstract
+Heart rate variability (HRV), which quantitatively characterizes fluctuations in beat-to-beat
+intervals, serves as a critical indicator of cardiovascular and autonomic nervous system
+health. The inherent ability of non-contact methods to eliminate the need for subject con-
+tact effectively mitigates user burden and facilitates scalable long-term monitoring, thus
+attracting considerable research interest in non-contact HRV sensing. In this study, we
+propose a novel algorithm for HRV extraction utilizing FMCW millimeter-wave radar.
+First, we developed a calibration-free 3D target positioning module that captures subjects’
+micro-motion signals through the integration of digital beamforming, moving target indica-
+tion filtering, and DBSCAN (Density-Based Spatial Clustering of Applications with Noise)
+clustering techniques. Second, we established separate phase-based mathematical models
+for respiratory and cardiac vibrations to enable systematic signal separation. Third, we
+implemented the Second Order Spectral Sparse Separation Algorithm Using Lagrangian
+Multipliers, thereby achieving robust heartbeat extraction in the presence of respiratory
+movements and noise. Heartbeat events are identified via peak detection on the recovered
+cardiac signal, from which inter-beat intervals and HRV metrics are subsequently derived.
+Compared to state-of-the-art algorithms and traditional filter bank approaches, the pro-
+posed method demonstrated an over 50% reduction in average IBI (Inter-Beat Interval)
+estimation error, while maintaining consistent accuracy across all test scenarios. However,
+it should be noted that the method is currently applicable only to scenarios with limited
+subject movement and has been validated in offline mode, but a discussion addressing
+these two issues is provided at the end.
+Keywords: heart rate variability (HRV); millimeter-wave (mmWave) radio; non-contact
+monitoring; spectral sparse separation algorithm
+1. Introduction
+Real-time monitoring of human physiological states is crucial for modern health man-
+agement and disease prevention. Heart rate variability (HRV), which reflects autonomic
+nervous system regulation and cardiac function, has been extensively applied in early
+diagnosis of cardiovascular diseases and long-term health assessment [ 1,2]. However,
+conventional HRV measurement methods rely on contact sensors such as an electrocardio-
+gram (ECG) or photoplethysmography (PPG). Despite their accuracy in signal acquisition,
+these contact methods may cause discomfort, skin allergies, and are unsuitable for vulnera-
+Sensors 2025, 25, 5607 https://doi.org/10.3390/s25175607
+
+Sensors 2025, 25, 5607 2 of 19
+ble populations (e.g., patients with skin infections or burns). Consequently, non-contact
+monitoring technologies have emerged as a significant research focus.
+Among non-contact technologies, Frequency-Modulated Continuous Wave (FMCW)
+millimeter-wave radar offers significant advantages, including high resolution, real-time
+capability, and obstacle penetration. Compared to camera-based solutions, FMCW radar
+systems better mitigate privacy concerns [ 3]. Recent advancements in millimeter-wave
+radar have improved both signal processing and target detection methodologies. Early
+research utilized singular value decomposition (SVD), matched filtering, and related tech-
+niques to isolate heartbeat signals from confounding factors like respiration. However,
+these conventional methods often yield insufficient extraction accuracy. While deep learn-
+ing and iterative optimization techniques have enhanced HRV parameter precision, their
+generalization capability remains limited by insufficient validated datasets.
+To address these limitations, we propose a novel three-dimensional human positioning
+and HRV extraction iterative optimization method (Second-Order Spectral Sparse Separa-
+tion Algorithm Using Lagrangian Multipliers) using FMCW millimeter-wave radar. Our
+method achieves precise 3D targeting through positional and signal enhancement tech-
+niques, combining beamforming with Moving Target Indication (MTI) for robust detection.
+Second, we establish mathematical models for respiratory and heartbeat signals, analyzing
+their characteristic differences to provide a theoretical foundation for iterative optimization
+algorithms. Finally, we introduce a Second-Order Spectral Sparse Separation Algorithm
+Using Lagrangian Multipliers, which reduces parameter extraction errors compared to
+conventional methods.
+This investigation has yielded encouraging results in both theoretical modeling and
+experimental validation, providing a viable new approach for non-contact physiological
+state detection. The remainder of the manuscript is organized as follows: Section 2 reviews
+related work and evaluates the advantages and disadvantages of existing methods; Section 3
+elucidates the principles of radar vital sign detection and the detailed implementation of
+each algorithm step; Section 4 presents the experimental setup and analysis of results;
+Section 5 discusses system limitations and potential avenues for future improvement.
+2. Related Work
+The evolution of non-contact heart rate variability (HRV) detection technology has pro-
+gressed substantially from conventional signal processing methodologies to advanced in-
+telligent data analysis techniques. The field has witnessed continuous refinement, whether
+employing classical filtering, matching algorithms, and two-dimensional positioning tech-
+niques characteristic of conventional methods, or intelligent signal processing solutions
+leveraging neural networks and deep learning architectures, with significant advancements
+in key areas such as signal separation, noise suppression, and real-time detection. These
+methodologies have exhibited considerable potential in diverse practical application sce-
+narios, encompassing medical health monitoring, sleep analysis, smart home environments,
+and driving safety systems.
+2.1. T raditional Methods
+The development of traditional algorithms has been primarily reflected in the con-
+tinuous iteration of hardware platforms and signal processing methods, with the core
+aim of effectively separating and accurately extracting heartbeat and respiratory signals
+through various techniques, including filtering, differential enhancement, spectral esti-
+mation, and two-dimensional positioning technologies. From the initial use of ultrasonic
+transducers to build non-contact HRV measurement systems for evaluating long-term
+monitoring uncertainty [4], to utilizing 24 GHz continuous-wave Doppler radar that com-
+
+Sensors 2025, 25, 5607 3 of 19
+bines frequency and time domain analysis to achieve high-precision heartbeat interval
+estimation [5], these pioneering studies laid the theoretical and practical foundation for
+non-contact HRV detection.
+To further overcome the challenges of environmental interference and respiratory
+harmonic interference, the detectability of heartbeat signals was significantly improved
+by introducing differential enhancement technology [6]. Meanwhile, the development of
+FMCW radar technology has facilitated the realization of long-distance and non-intrusive
+monitoring, with applications encompassing remote detection of human vital signs, separa-
+tion of cardiopulmonary activities, and multi-scenario monitoring during sleep [7].
+In addressing multi-target detection and multi-path propagation problems in complex
+indoor environments, multiple-input multiple-output (MIMO) radar with digital beam-
+forming (DBF) technology, singular value decomposition combined with matched filtering
+algorithms, and two-dimensional positioning with angle separation methods were suc-
+cessively proposed, enabling robust detection and precise positioning of multiple human
+targets’ vital signs [8–10]. Additionally, multi-user HRV systems based on millimeter-wave
+radio further improved detection accuracy through calibrated free target detection and
+signal decomposition [11], while spectral estimation methods and real-time evaluation
+algorithms facilitated high-precision heartbeat interval estimation within short time win-
+dows [12]. Furthermore, considering the impact of individual body type and physiological
+variations on detection results, system optimization integrating machine learning for per-
+sonalized classification and specialized scenarios (such as driver health monitoring) has
+also been extensively validated [13–15].
+2.2. Machine Learning and Deep Learning
+To overcome the limitations of traditional signal processing methods in dynamic and
+complex environments, an increasing number of studies have introduced machine learning
+and deep learning approaches to achieve more efficient non-contact HRV detection. In
+preliminary attempts, low-latency, real-time heartbeat detection was achieved by processing
+raw signals from 24 GHz continuous-wave radar using artificial neural networks [ 16].
+Subsequently, vital sign monitoring systems based on millimeter-wave radar not only
+achieved separation of heartbeat and respiratory signals but also incorporated cardiac
+arrhythmia detection functionality, thus demonstrating the potential for disease prediction
+using multi-layer neural networks [ 17]. More recently, further research has achieved
+accurate estimation of HRV parameters using only 4 s of data by constructing deep networks
+with spectral representation modules and residual nested structures, thereby effectively
+reducing detection delay while ensuring high measurement precision [18].
+However, from a technical perspective, existing methods still face several challenges:
+traditional filtering and matching algorithms tend to introduce significant errors when
+processing composite signals containing respiration, heartbeat, and other background
+interference. Additionally, while deep learning methods show potential for improving
+HRV extraction precision, their generalization capability has not been fully validated due
+to limitations in the scale and diversity of training datasets; furthermore, some systems fail
+to fully utilize phase information in radar signals during the target detection stage, leading
+to error accumulation problems in the signal separation process.
+Given the limitations of current technical approaches, this research aims to propose an
+improved method that addresses key issues in signal processing. The proposed method
+achieves three-dimensional positioning of human targets using beamforming and MTI
+(Moving Target Indication) moving target detection, and effectively reduces errors in the
+HRV parameter extraction process through a Second-Order Spectral Sparse Separation
+Algorithm Using Lagrangian Multipliers. The next section will introduce in detail the theo-
+
+Sensors 2025, 25, 5607 4 of 19
+retical foundation and implementation process of this method and validate its effectiveness
+in complex environments through comprehensive experiments.
+3. Overview of HRV Measurement Principles and Algorithms
+This section introduces the non-contact HRV (Heart Rate Variability) detection algo-
+rithm based on FMCW millimeter-wave radar, and provides a detailed explanation of the
+three-dimensional human body positioning method and a Second-Order Spectral Sparse
+Separation Algorithm Using Lagrangian Multipliers.
+3.1. HRV Detection Principles and Algorithm Process
+FMCW millimeter-wave radar enables distance measurement between target objects
+and the radar through the emission of continuously frequency-modulated (chirp) electro-
+magnetic wave signals. As illustrated in Figure 1, human respiration and heartbeat induce
+periodic vibrations of the thoracic wall ranging from micrometer to millimeter amplitude,
+resulting in subtle phase changes in the reflected signal. Via phase demodulation tech-
+niques, the corresponding vibration frequency and amplitude can be extracted, facilitating
+non-contact monitoring of heart rate variability (HRV).
+FMCW
+RADAR
+Chest wall vibrations from 
+respiration and heartbeat Δ
+Δ
+TX
+RX
+fc
+Tc
+Frequency
+f
+Time t
+TX chirp TX chirp
+td
+fd
+FFT
+B
+Fast time (Range)
+Slow time1 · · · · N
+· · · · · ·
+·
+·
+·
+M
+FFT
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 1. Principle of vital sign signal measurement using FMCW millimeter-wave radar.
+Table 1 summarizes the typical parameters of thoracic wall vibrations induced by
+respiration and heartbeat, which are derived from related studies [ 19–21], but may dif-
+fer slightly from the values reported in the literature. Due to the short wavelength of
+millimeter-wave signals, their phase changes exhibit exceptional sensitivity to minute dis-
+placements, thereby enabling effective detection of the subtle vibrations of the thoracic wall
+during respiration and heartbeat processes. FMCW radar concurrently provides distance
+measurement and micro-motion detection, while demonstrating robust anti-interference
+capabilities and real-time performance, thereby rendering FMCW millimeter-wave radar
+an ideal modality for non-contact HRV monitoring.
+Table 1. Respiration and heartbeat vibration frequencies and amplitudes.
+Vital Signal Frequency Amplitude
+Breathing Rate (Adults) 0.1–0.5 Hz ~1–12 mm
+Heart Rate (Adults) 0.8–2.0 Hz ~0.01–0.2 mm
+Notably, the human body, as a target with finite dimensions, generates multiple reflec-
+tion points during radar detection, resulting in a complex superposition of echo signals.
+This multi-point reflection poses significant challenges for traditional signal processing
+
+Sensors 2025, 25, 5607 5 of 19
+methods in accurately separating and extracting heart rate variability information. To
+address this challenge, we propose a comprehensive signal processing algorithm, with the
+overall flow chart presented in Figure 2, which systematically delineates the entire process
+from radar raw data to final HRV parameter analysis.
+Radar Raw 
+Signal
+Spatial 
+position  
+Information
+Phase 
+Extraction
+Raw 
+Physiological 
+Signal
+Localization
+Preprocessing
+High SNR 
+SignalSeparation
+Respiratory 
+Signal
+Heartbeat 
+Signal
+Noise
+Analysis
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 2. Signal processing algorithm flowchart.
+Specifically, following the acquisition of the radar’s original signal, a positioning
+algorithm initially localizes the target in three-dimensional space, yielding precise spatial
+information that facilitates phase extraction from the radar’s raw signal to obtain the origi-
+nal vital sign signal. Subsequently, our proposed Second Order Spectral Sparse Separation
+Algorithm Using Lagrangian Multipliers isolates the heartbeat signal from the processed
+high signal-to-noise ratio vital sign signal, enabling accurate HRV analysis. In the follow-
+ing sections, we present detailed descriptions of the target positioning algorithm and the
+Second-Order Spectral Sparse Separation Algorithm Using Lagrangian Multipliers.
+3.2. T arget Localization Algorithm
+Herein, we present a detailed description of the target localization algorithm imple-
+mented in this research, with its algorithmic flow illustrated in Figure 3. This method,
+based on raw data acquired from FMCW millimeter-wave radar, achieves accurate human
+target localization through a sequential pipeline of preprocessing, Range-Doppler trans-
+form, digital beamforming, three-dimensional energy fusion, and DBSCAN-based target
+clustering, thereby providing reliable target region information for subsequent HRV signal
+extraction.
+Preprocessing
+Radar Raw 
+Signal MTI
+DC 
+Component 
+Removal
+Range-Doppler
+ FFT
+Horizontal 
+Beamforming
+Vertical 
+Beamforming
+DBSCAN
+Clustering
+Spatial 
+position  
+Information
+Figure 3. Target positioning algorithm flowchart.
+3.2.1. Signal Preprocessing and Spatial Spectral Analysis
+To suppress static clutter, we first applied Moving Target Indication (MTI) filtering to
+each antenna signal. In the fast-time dimension, a Blackman-Harris window function was
+applied to the MTI-processed data, followed by Fast Fourier Transform (FFT), enabling
+
+Sensors 2025, 25, 5607 6 of 19
+spectral analysis in the range dimension. Subsequently, window function processing and
+FFT were similarly applied in the slow-time (chirp dimension) to obtain the Doppler
+spectrum, resulting in a two-dimensional Range–Doppler map.
+To determine the target’s position in spatial angles, we utilized digital beamforming
+technology to reconstruct the processed data in the spatial domain. In this algorithm, differ-
+ent antenna combinations were strategically selected to achieve independent localization
+in both horizontal and vertical directions. After beamforming, energy normalization pro-
+cessing was performed to stabilize the relative energy distribution across different beams,
+yielding two sets of spatial energy distributions Ehor(r, θx) and Ever(r, θz).
+3.2.2. Three-Dimensional Target Detection and Position Estimation
+To achieve three-dimensional localization, these two spatial energy distributions were
+fused to construct a three-dimensional energy matrix whose elements are defined as follows:
+E3D(i, j, k) = Ehor(rk, θxi ) × Ever
+
+rk, θxj
+
+, (1)
+where rk represents the k-th range dimension, and θxi and θxj correspond to the angular
+indices of the i-th horizontal beam and the j-th vertical beam. This matrix characterizes the
+distribution of reflection energy across different distance and angle regions, with targets
+typically manifesting as local areas of higher energy.
+Since reflection energy is significantly affected by target distance, and to suppress
+noise and invalid points in the environment, E3D was normalized, and high-energy points
+satisfying the following condition were selected as candidate target points:
+E3D(i, j, k) ≥ η · max {E3D(i, j, k)}, (2)
+where η denotes the energy threshold.
+Subsequently, a density-based clustering algorithm, DBSCAN, was employed to per-
+form cluster analysis on the candidate point set, effectively separating targets distributed
+in three-dimensional space, with each cluster corresponding to a candidate human target.
+For each clustering result, the frequency of occurrence of each point was counted, and the
+point with the highest frequency was selected as the representative position of the target.
+Finally, the beam indices were converted to actual physical coordinates in the Cartesian
+system. The actual distance corresponding to each sampling point on the distance axis was
+calculated as follows: 
+
+
+xdis = c·N·tan(θmax )
+4B·Nbeam
+,
+ydis = c
+4B ,
+zdis = c·N·tan(θmax )
+4B·Nbeam
+.
+(3)
+where c represents the speed of light,B denotes the bandwidth,N is the number of sampling
+points per chirp, Nbeam represents the number of beams, and θmax indicates the maximum
+angle in the horizontal and vertical directions.
+Therefore, for any index (i, j, k) in the beam domain (where i and j represent the
+horizontal and vertical beam indices, respectively, and k denotes the distance index), its
+actual Cartesian coordinates were determined as follows:
+
+
+
+xactual = xdis
+
+i − Nbeam
+2
+
+,
+yactual = ydis · k,
+zactual = zdis
+
+j − Nbeam
+2
+
+.
+(4)
+Figure 4 illustrates the results of each process in the target localization algorithm.
+
+Sensors 2025, 25, 5607 7 of 19
+（a）
+ （c）（b）
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 4. (a) Range–Doppler spectrum showing the distance-velocity characteristics of the target;
+(b) three-dimensional point cloud representation of high-energy scattering points extracted after
+matrix fusion; (c) target localization algorithm result showing the target’s actual location relative to
+the radar system.
+3.3. Second-Order Spectral Sparse Separation Algorithm Using Lagrangian Multipliers
+After obtaining the target spatial position information through robust target local-
+ization algorithms, the original FMCW radar signal is systematically transformed into a
+phase signal containing heartbeat information. The methodology comprises the following
+steps: Initially, Fast Fourier Transform (FFT) and digital beamforming are performed on
+each frame of the original signal to obtain range-angle domain data. Subsequently, phase
+information is extracted through the arctangent function based on the target spatial position
+information of the target cluster. To address phase jumps caused by2π periodicity, phase
+unwrapping techniques are implemented through the addition of integer compensation
+terms to restore phase continuity. In the final stage, by calculating the variance of the
+phase signal and filtering out low-variance signals, static noise components are effectively
+removed, yielding a continuous phase sequence that encompasses not only the target’s
+respiratory movement and heartbeat information but also incorporates other minute mo-
+tion artifacts. Based on this methodology, the original data is converted into high-quality
+phase signals, enabling the Second-Order Spectral Sparse Separation Algorithm Using
+Lagrangian Multipliers to further isolate fine heartbeat signals. The subsequent sections
+elucidate the key implementation and technical details of the Second-Order Spectral Sparse
+Separation Algorithm Using Lagrangian Multipliers in heartbeat signal extraction.
+3.3.1. Establishing Respiratory and Heartbeat Models
+Utilizing the aforementioned method, high-quality phase signals containing both
+respiratory and heartbeat information were acquired. As demonstrated in Table 1, the
+amplitude of respiratory signals (~1–12 mm) significantly exceeds that of heartbeat signals
+(~0.01–0.2 mm), thereby causing substantial interference with the latter. Consequently,
+separating these two physiological signals has been a critical issue in related research.
+Traditional filtering methods primarily rely on frequency domain characteristics, while
+differential methods process signals by amplifying amplitude variations. However, both
+approaches exhibit inherent limitations and fail to fully elucidate the deeper distinctions
+between these physiological signals. To address these limitations, the present study further
+explores the fundamental differences between respiratory and heartbeat signals through
+rigorous mathematical modeling.
+
+Sensors 2025, 25, 5607 8 of 19
+(a) With respect to respiratory signals, Antonio Albanese et al. developed a simulation
+model by dividing respiration into inhalation and exhalation phases [22], described by the
+following mathematical formulation:
+xb(t) =
+
+
+
+−Ar
+Ti·Te · t2 + Ar·Tr
+Ti·Te · t t ∈ [0, Ti]
+Ar
+1−e− Teτ
+·
+
+e−( (t−Ti )
+τ ) − e−( Te
+τ )
+
+t ∈ [Ti, Tr] (5)
+where [0, Ti] represents the inhalation phase, [Ti, Tr] represents the exhalation phase, and
+Ti and Te denote the duration of inhalation and exhalation phases, respectively. Tr indicates
+the total duration of the respiratory cycle, and Ar represents the amplitude of respiration.
+The respiratory frequency can be calculated as fr = 2π/Tr. T is the time constant of the
+respiratory curve, which determines the rate of filling and emptying of pulmonary gases.
+This modeling approach was subsequently adopted in studies by Sha Yuan and Yuki
+Iwata [18,23].
+(b) Building upon this conceptual framework, after stage-wise analysis of electrocar-
+diogram signals and interpretation of the corresponding cardiac mechanical dynamics (as
+shown in Figure 5), we developed a five-stage model for heartbeat signals, governed by the
+following equation:
+xh(t) =
+
+
+
+− Kp
+T2p
+t2 + 2Kp
+Tp t t ∈
+
+0, Tp
+
+Kp t ∈
+
+Tp, TPR
+
+KQRS e
+−
+(t−TQRS )2
+2π2
+QRS t ∈
+
+TPR, TQRS
+
+KQRS t ∈
+
+TQRS, TST
+
+KQRS 1−e−λT (t−TST )−e−λT (TRR −TST )
+1−e−λT (TRR −TST ) t ∈ [TST, TRR ]
+(6)
+where Kp represents the atrial displacement amplitude constant; KQRS denotes the ventric-
+ular displacement amplitude constant; σQRS =
+vuut (TPR −TQRS )
+2
+2ln(
+KQRS
+KP
+ is the ventricular contraction
+rate; and λ ≥ 5
+TRR −TST
+is the ventricular relaxation rate.
+（a）
+ （b）
+ （c）
+（d）
+ （e）
+ （f）
+ 
+Figure 5. (a) Atrial contraction process, where blood flows from the atrium to the ventricle, corre-
+sponding to the P wave of the electrocardiogram; (b) the process after atrial contraction, where the
+ventricle prepares for contraction, corresponding to the PR interval of the electrocardiogram; (c) the
+ventricular contraction process, where blood flows from the ventricle to the lungs and body, corre-
+sponding to the QRS complex of the electrocardiogram; (d) the beginning of ventricular repolarization,
+
+Sensors 2025, 25, 5607 9 of 19
+where the ventricle prepares for the next contraction, corresponding to the ST interval of the electro-
+cardiogram; (e) the ventricular repolarization process, where the ventricle returns to resting state,
+preparing for the next contraction, corresponding to the T wave of the electrocardiogram; ( f) the
+period after ventricular repolarization, where the heart’s electrical activity enters a resting state,
+preparing for the next cardiac contraction, corresponding to the TP interval of the electrocardiogram.
+3.3.2. Second-Order Spectral Sparse Separation Algorithm Using Lagrangian Multipliers
+for Separating Heartbeat Signals
+In the preceding section, we utilized the target positioning algorithm results to facilitate
+the conversion of original FMCW radar data into phase signals, comprising respiratory
+signals, heartbeat signals, and human micro-motion noise, expressed as follows:
+y(t) = xb(t) + xh(t) + e(t) (7)
+where xb(t) represents the respiratory signal, xh(t) denotes the heartbeat signal, and e(t)
+corresponds to noise. It should be noted that both xb(t) and xh(t) are quasi-periodic signals
+with periods that may exhibit slight temporal variations. We assume that body movements
+introduce minimal oscillations, rendering xb(t) and xh(t) sparse in the spectral domain [11].
+Let λbi and λhj denote the i-th eigenvalues of xb(t) and xh(t), respectively, arranged in
+descending order following eigenvalue decomposition. According to compressed sensing
+theory, the original signal can be reconstructed using the first n dominant eigenvalues. Fur-
+thermore, as observed in the stage-by-stage simulated waveforms presented in Section 3.3.1,
+the heartbeat signal exhibits more pronounced rising and falling structures compared to the
+respiratory signal, which can be approximated as a step function. By computing the second
+derivative of y(t), these fine step structures can be more effectively extracted. Consequently,
+we formulate the objective function to be minimized as follows:
+J(xb, xh, n) = αb
+N
+∑
+i=n+1
+λbi
+2 + αh
+N
+∑
+j=n+1
+λhj
+2 + β
+
+d2y(t)
+dt2 − xh(t)
+
+2
+2
++ (8)
+where λbi = eig i(Rb), Rb = 1
+K H(xb(t))HT(xb(t)) = UbΛbUT
+b ; λhj = eig j(Rh),
+Rh = 1
+K H(xh(t))HT(xh(t)) = UhΛhUT
+h ; eig i(·) represents the i-th eigenvalue of the co-
+variance matrix R(·) arranged in descending order; H(·) denotes the operation of construct-
+ing a Hankel matrix; U = [u1, u2, . . . , uN] is the eigenvector matrix; K is the normaliza-
+tion coefficient, numerically equivalent to the number of columns in the Hankel matrix;
+N denotes the total number of decomposed eigenvalues; andαb and αh are hyperparameters
+that regulate the sparsity constraints. In this objective function, the first and second terms
+enforce sparsity of respiratory and heartbeat signals in the frequency domain, the third term
+preserves the integrity of fine step structures extracted via second-order differentiation,
+while the fourth term represents the data fidelity constraint.
+Following the formulation of the objective function, our goal is to separate xb(t) and
+xh(t) such that the objective function is minimized. We fix n and employ the Lagrangian
+multiplier method to iteratively update xb(t) and xh(t). Initially, we establish the following
+constraints: 
+
+
+gbi(xb(t), λbi) = λbi − 1
+K
+HT(xb(t))·ubi
+2
+2 = 0
+ghj(xh(t), λhj) = λhj − 1
+K
+HT(xh(t))·uhj
+
+2
+2
+= 0
+(9)
+Subsequently, we construct the Lagrangian function:
+L(xb, xh, λb, λh, ub, uh, µb, µh) = J(xb, xh, n) + G(xb, xh, λb, λh, ub, uh) (10)
+
+Sensors 2025, 25, 5607 10 of 19
+where G(xb, xh, λb, λh, ub, uh) = ∑N
+i=1 µ bi·gbi(xb(t), λbi) + ∑N
+j=1 µ hj ·ghj(xh(t), λhj).
+Having formulated the Lagrangian function, we proceed with the step-by-step param-
+eter updates as follows:
+(1). Fixing all other variables, we set the partial derivatives of the Lagrangian function
+with respect to λb and λh equal to zero, yielding the following update formulas:
+( ∂L
+∂λbi
+= 2αbλbi + µbi = 0
+∂L
+∂λhj
+= 2αhλhj + µhj = 0 and
+
+
+
+λ(k+1)
+bi = − µ(k)
+bi
+2αb
+λ(k+1)
+hj = −
+µ(k)
+hj
+2αh
+(11)
+(2). Update ub and uh through covariance matrix decomposition:
+(
+R(k+1)
+b = 1
+K H(x(k)
+b (t))HT(x(k)
+b (t))
+R(k+1)
+b u(k+1)
+bi = λ(k+1)
+bi u(k+1)
+bi
+(12)
+This procedure yields u(k+1)
+bi , and analogously, u(k+1)
+hj can be derived.
+(3). Reconstruct xb(t) and xh(t) utilizing the updated λb, λh, ub and uh:
+First, compute the right singular vector:
+v(k+1)
+bi = 1q
+Kλ(k+1)
+bi
+HT(x(k)
+b (t))u(k+1)
+bi (13)
+Subsequently, reconstruct the Hankel matrix:
+Hr
+
+x(k+1)
+br (t)
+
+= ∑
+N
+i=1
+q
+K·λ(k+1)
+bi ·u(k+1)
+bi ·v(k+1)
+bi (14)
+Finally, perform the inverse Hankel operation (diagonal averaging) to reconstruct
+xb(t):
+x(k+1)
+br (t) = 1
+count(t) ∑
+i+j=t+1
+Hr(i, j) (15)
+where count(t) represents the number of elements Hr(i, j) satisfying i + j = t + 1, and
+x(k+1)
+hr (t) is derived analogously.
+(4). Set the partial derivatives of the Lagrangian function with respect to xb(t) and
+xh(t) equal to zero to determine the updated expressions:
+∂L
+∂xb(t) = −2γ(y(t) − xb(t) − xh(t)) − 2
+K∑
+N
+i=1(µ bi ·DT
+bi·Sbi) = 0 (16)
+This yields
+x(k+1)
+b (t) = y(t) − x(k)
+h (t) − 1
+Kγ∑
+N
+i=1 (µ(k)
+bi ·DT
+bi·S(k+1)
+bi ) (17)
+where S(k+1)
+bi = HT(x(k)
+b (t))u(k+1)
+bi , DT
+bi = ∂Sbi
+∂xb(t) . Analogously, the update formula for xh(t)
+can be derived:
+x(k+1)
+h (t) =
+γ
+
+y(t) − x(k)
+b (t)
+
++ β d2y(t)
+dt2 + 1
+K
+N
+∑
+j=1
+(µ(k)
+hj ·DT
+hj·S(k+1)
+hj )
+γ + β (18)
+where S(k+1)
+hj = HT(x(k)
+h (t))u(k+1)
+hj , DT
+hj =
+∂Shj
+∂xh(t) .
+
+Sensors 2025, 25, 5607 11 of 19
+(5). Update µ b and µ h:
+
+
+
+µ(k+1)
+bi = µ(k)
+bi + ρ
+
+λ(k+1)
+bi − 1
+K
+S(k+1)
+bi
+
+2
+2
+
+µ(k+1)
+hj = µ(k)
+hj + ρ
+
+λ(k+1)
+hj − 1
+K
+S(k+1)
+hj
+
+2
+2
+ (19)
+Repeat the aforementioned five steps iteratively until the algorithm converges, with
+the convergence criterion defined as
+
+
+
+δb =
+x(k+1)
+br − x(k+1)
+b (t)
+
+2
+2
+< ε
+δh =
+x(k+1)
+hr − x(k+1)
+h (t)
+
+2
+2
+< ε
+(20)
+3.4. HRV Estimation
+After extracting the heartbeat waveform, the precise temporal location of each cardiac
+cycle can be determined by identifying the peaks in the signal. The interbeat interval (IBI)
+is derived by calculating the temporal distance between consecutive cardiac cycles. This IBI
+sequence subsequently enables the evaluation of heart rate variability (HRV) parameters.
+MeanIBI = 1
+NIBI
+∑
+NIBI
+i=1 IBI(i) (21)
+where NIBI represents the total number of interbeat intervals in the measurement period.
+The second metric, root mean square of successive differences (RMSSD), quantifies
+beat-to-beat variations in IBI and is calculated as
+RMSSD =
+s
+1
+NIBI − 1∑
+NIBI
+i=2 (IBI(i) − IBI(i − 1))2 (22)
+The third metric, standard deviation of normal-to-normal intervals (SDNN), character-
+izes the overall variability of IBIs and is defined as
+SDRR =
+s
+1
+NIBI
+∑
+NIBI
+i=2
+ 
+IBI(i) − IBI
+2 (23)
+where IBI denotes the mean value of all interbeat intervals.
+The fourth metric, pNN50, quantifies the percentage of successive interbeat intervals
+differing by more than 50 milliseconds, formulated as
+pNN50 = ∑NIBI
+i=2 1(|IBI(i) − IBI(i − 1)| > 50)
+NIBI
+(24)
+where 1(·) represents the indicator function.
+4. Experimental Evaluation
+This section presents a comprehensive evaluation of the proposed algorithm, including
+experimental methodology, performance analysis, and comparative assessment with state-
+of-the-art approaches.
+4.1. Methodology
+As illustrated in Figure 6, we conducted experiments using the Infineon BGT60TR13C
+millimeter-wave radar in an indoor environment with static-clutter interference. To obtain
+reference heartbeat signals, a Polar H10 heart-rate monitor—selected for its negligible
+
+Sensors 2025, 25, 5607 12 of 19
+electromagnetic impact on the radar—was used simultaneously with the radar. A total of
+10 healthy participants (5 males and 5 females), aged 20–30 years, were recruited without
+restrictions on height or weight to enhance generalizability. Section 4.1 specifies the radar–
+subject geometry: four nominal distances (0.30, 0.50, 0.75, and 1.00 m) and three azimuth
+orientations relative to the radar boresight (0 ◦, 15◦, and 30◦). A clear line of sight to the
+anterior chest surface was maintained throughout the experiments (no rigid obstructions;
+normal indoor clothing permitted, with metallic accessories over the chest removed). The
+Polar H10 ECG stream was sampled at 130 Hz; ECG and radar data were time-stamped on
+the same host and synchronized offline using a standard cross-correlation-based alignment
+between ECG R-peak and radar-derived beat events prior to evaluation. To further evaluate
+the performance of the proposed algorithm, we compared it with traditional bandpass filter
+methods using differential techniques [6] and advanced HRV estimation techniques [11].
+The former eliminates respiratory interference by subtracting the envelope of the respiratory
+signal.
+RADARPOLAR H10
+RADAR
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 6. Experimental setup.
+4.2. Overall Performance
+Figure 7 illustrates the comparative results of heartbeat signals and ECG signals
+extracted using our proposed method, with the ECG signal obtained from a Polar H10 heart
+rate monitor serving as the reference for performance comparison. The left panel displays
+heartbeat signal waveforms extracted via three different methods: the DEBF method, the
+mmHRV technique, and our proposed Second-Order Spectral Sparse Separation Algorithm
+Using Lagrangian Multipliers. Visually, our method demonstrates significant advantages
+in terms of accuracy and smoothness, and exhibits superior correspondence with the peak
+positions of the ground truth (ECG signal). The right panel presents individual heartbeat
+analysis, distinctly revealing the regular characteristics of ECG signals. Compared to both
+traditional methods (DEBF) and state-of-the-art methods (mmHRV), our method not only
+identifies peak positions with greater precision but also provides enhanced signal quality
+stability. In subsequent quantitative analysis, our method consistently outperforms both
+DEBF and mmHRV methods across three key metrics: signal quality score, feature point
+positioning accuracy, and noise immunity. These results substantiate that the proposed
+algorithm exhibits high accuracy, technological advancement, and significant practical
+potential in the field of non-contact monitoring.
+
+Sensors 2025, 25, 5607 13 of 19
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 7. Signal waveform diagram.
+Table 2 shows the overall inter-beat interval (IBI) estimation accuracy of the proposed
+algorithm compared to traditional bandpass filter methods and advanced HRV estima-
+tion techniques. This experiment involved multiple participants undergoing multiple
+measurements under identical time and conditions, with results subsequently averaged.
+The data presented in Table 2 demonstrate performance differences between the ECG
+method (as reference standard), DEBF, mmHRV , and our proposed method across multiple
+HRV metrics. Based on a comprehensive analysis of the experimental results, our method
+demonstrates significant advantages in heart rate variability estimation across all metrics.
+For the Mean IBI measurement, our method achieved a mean absolute error of 10.80 ms,
+representing error reductions of 50.25% compared to DEBF (21.71 ms) and 59.34% compared
+to mmHRV (26.56 ms). For the root mean square of successive differences (RMSSD) metric,
+our method’s mean absolute error was 25.80 ms, representing improvements of 41.12%
+compared to DEBF (43.82 ms) and 50.50% compared to mmHRV (52.12 ms). For the
+standard deviation of RR intervals (SDRR) metric, our method’s mean absolute error was
+20.98 ms, showing reductions of 37.76% compared to DEBF (33.71 ms) and 38.31% compared
+to mmHRV (34.01 ms). For the percentage of successive NN intervals that differ by more
+than 50 ms (pNN50) metric, our method’s mean absolute error was 5.71%, decreasing
+errors by 47.57% compared to DEBF (10.89%) and 49.82% compared to mmHRV (11.38%).
+These results indicate that the proposed method achieves superior precision in heart rate
+variability estimation compared to existing approaches.
+Figure 8 intuitively illustrates the advantages of the proposed method. Across all
+four metrics, our approach achieves significantly lower absolute error than both DEBF
+and mmHRV . Specifically, for the Mean IBI metric, the error achieved by our method for
+Users 1, 2, 3, and 5 is substantially lower than the errors of DEBF and mmHRV . Notably,
+for Users 5 and 6, our method yields the smallest error, indicating enhanced consistency
+
+Sensors 2025, 25, 5607 14 of 19
+and stability under multi-user conditions. Regarding SDRR, although all methods exhibit
+larger errors for User 4, our approach attains lower errors overall—especially for Users 2
+and 6—demonstrating a significant reduction compared to DEBF and mmHRV . Results
+for RMSSD and pNN50 further corroborate the superiority of our method: for Users 1, 2,
+and 3, the errors are smaller than those of traditional methods, underscoring its enhanced
+accuracy.
+It is noteworthy that Subject 4 represented a significant outlier for all methods, with
+consistently higher errors across various metrics, potentially attributable to this subject’s
+unique physiological characteristics or specific data collection conditions. After excluding
+this anomalous case from the analysis, the performance gap between methods further
+widened, demonstrating that our algorithm exhibits higher accuracy and reliability under
+typical physiological conditions.
+Table 2. HRV estimation using Mean IBI, RMSSD, SDRR, and pNN50 (partial).
+Metrics Methods User ID
+1 2 3 4 5 6
+Mean IBI
+Value
+(ms)
+ECG 838.24 744.74 720.79 764.07 592.71 751.42
+DEBF 846.25 760.11 711.89 857.55 591.30 754.49
+mmHRV 850.09 774.11 737.20 856.58 599.05 754.29
+Ours 842.56 744.31 711.56 812.39 592.01 753.20
+DEBF 8.01 15.37 8.90 93.49 1.41 3.07
+mmHRV 11.85 29.37 16.41 92.51 6.34 2.87Error
+(ms) Ours 4.33 0.43 9.23 48.32 0.70 1.78
+SDRR
+Value
+(ms)
+ECG 31.06 37.58 24.65 21.14 7.67 27.81
+DEBF 62.64 62.81 51.02 103.76 33.22 38.73
+mmHRV 49.22 84.10 69.81 72.56 46.19 32.11
+Ours 26.60 10.36 34.01 84.82 26.43 25.41
+DEBF 31.58 25.22 26.37 82.62 25.54 10.92
+mmHRV 18.16 46.51 45.16 51.42 38.52 4.30Error
+(ms) Ours 4.46 27.22 9.36 63.68 18.76 2.40
+RMSSD
+Value
+(ms)
+ECG 30.79 22.19 12.46 21.25 7.26 25.89
+DEBF 73.09 63.52 49.69 137.34 29.11 29.99
+mmHRV 61.53 105.76 90.29 90.24 56.15 28.54
+Ours 32.26 9.45 45.35 101.85 32.31 23.86
+DEBF 42.30 41.33 37.23 116.09 21.86 4.10
+mmHRV 30.74 83.57 77.83 69.00 48.90 2.65Error
+(ms) Ours 1.47 12.74 32.89 80.60 25.05 2.03
+pNN50
+Value
+(ms)
+ECG 8.78 3.00 0.00 1.91 0.00 4.74
+DEBF 12.38 13.72 16.42 29.29 6.12 5.83
+mmHRV 18.24 13.50 16.91 24.22 8.83 4.49
+Ours 8.70 0.00 7.31 23.24 1.52 5.77
+DEBF 3.61 10.72 16.42 27.39 6.12 1.09
+mmHRV 9.47 10.50 16.91 22.32 8.83 0.25Error
+(ms) Ours 0.08 3.00 7.31 21.34 1.52 1.03
+
+Sensors 2025, 25, 5607 15 of 19
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 8. Absolute error bar chart.
+4.3. Impact of Distance and Angle
+In this section, we analyze the impact of distance and angle between subjects and
+millimeter-wave radar on estimation error. Participants were positioned facing the device
+while seated at four different distances (30, 50, 75, 100 cm) and three different angles (0◦,
+15◦, 30◦). The empirical cumulative distribution function (CDF) of the Mean IBI estimation
+error is presented in Figure 9.
+Figure 9a illustrates the cumulative distribution of Mean IBI estimation errors for each
+method at angles of 0◦, 15◦, and 30◦. When subjects directly face the radar (0◦), our method
+achieves an error of approximately 14 ms at the median point (50th percentile), while
+mmHRV and traditional bandpass filter methods exhibit errors of approximately 35 ms and
+20 ms, respectively. As the angle deviates from front-facing, errors for all three methods
+increase, but with significant differences in error magnitude: At 15◦, the median error of
+our method only rises to about 34 ms, which is similar to mmHRV and traditional bandpass
+filter methods; however, under the more extreme condition of 30◦, our method’s median
+error is maintained at around 44 ms, while comparison methods approach95 ms and 50 ms
+for mmHRV and bandpass filter, respectively. At the 90th percentile (90% cumulative
+probability position), our method demonstrates values of approximately 176 ms, 193 ms,
+and 326 ms at 0 ◦, 15◦, and 30 ◦, respectively, significantly lower than mmHRV’s 276 ms,
+230 ms, 415 ms and the bandpass filter’s 276 ms, 258 ms, 397 ms. These results indicate
+that in scenarios where signal amplitude is reduced due to orientation offset, our method
+not only excels in typical error levels (median) but also demonstrates superior suppression
+capability for tail errors (high percentile).
+Figure 9b illustrates the performance degradation trend as the distance between
+subjects and the radar increases from 30 cm to 100 cm. At 30 cm, all three methods
+exhibit low errors—our method’s median error is approximately 3 ms, while mmHRV
+and bandpass filter methods show 6 ms and 3 ms, respectively. However, as the distance
+increases to 50 cm and 75 cm, the error curves shift rightward, with mmHRV’s median
+
+Sensors 2025, 25, 5607 16 of 19
+error approaching 35 ms at 75 cm, and the bandpass method exceeding 20 ms, while our
+method only increases to about 5 ms, indicating a more gradual performance decline. Even
+at the maximum tested distance of 100 cm, our method still maintains the median error
+within 92 ms, with the 95th percentile below 265 ms, while mmHRV’s corresponding value
+exceeds 395 ms, and the bandpass filter method similarly approaches 395 ms. These findings
+demonstrate that our method is more robust to signal-to-noise ratio (SNR) reduction related
+to distance and can maintain stable, accurate heartbeat interval estimation over a wider
+spatial range.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 9. Empirical cumulative distribution function of Mean IBI estimation error at multiple angles
+and distances.
+To quantitatively demonstrate the performance differences among various methods
+under different conditions, Figure 10 presents comparative confidence interval charts
+of mean absolute IBI errors under multiple angles and distances, where dots represent
+the upper limit of 50% confidence intervals, triangles represent the upper limit of 90%
+confidence intervals, and line segments represent error bands. The results indicate that
+as the angle increases and distance extends, the errors of all methods demonstrate an
+upward trend; however, our proposed method consistently exhibits a statistically significant
+advantage: In the angle experiment, even under the extreme 30 ◦ condition, the median
+error of our method remains significantly lower than all comparative methods, with the 90%
+confidence interval upper limit constrained below 250 ms. In the distance experiment, our
+method demonstrates negligible error margins at short distances, and maintains relatively
+small error ranges at 100 cm (90% confidence interval upper limit of approximately300 ms),
+whereas the error bands of comparative methods significantly expand (approaching or
+
+Sensors 2025, 25, 5607 17 of 19
+exceeding 400 ms), with differences particularly pronounced at the 90% confidence level,
+thus substantiating the superior robustness of our proposed method.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 10. Comparative confidence interval charts of mean absolute IBI errors under multiple angles
+and distances.
+In summary, regarding the two typical interference factors—angle offset and distance
+extension—our proposed method significantly outperforms existing mmHRV algorithms
+and bandpass filter-based baseline schemes: not only does it achieve lower estimation errors
+in common confidence intervals (50th–75th percentile), but it also effectively suppresses
+tail errors in high confidence intervals (90th–95th percentile). These results suggest that
+our method offers enhanced reliability and applicability for practical applications.
+5. Discussion and Future Work
+In this study, we proposed and validated a three-dimensional human positioning
+and iterative optimization method for heart rate variability (HRV) extraction based on
+frequency-modulated continuous wave (FMCW) millimeter-wave radar. Experimental
+results demonstrated that compared to traditional bandpass filter arrays and advanced
+mmHRV methods, our approach significantly reduced estimation errors under multi-
+distance and multi-angle conditions, achieving high-precision separation and robust ex-
+traction of respiratory and heartbeat signals. Although the proposed method performed
+excellently in resting states, several limitations remain, including the relatively controlled
+experimental environments, manually tuned algorithm parameters, and susceptibility to
+interference from subtle human body movements. Future work will focus on the following.
+Comparison with advanced methods and dataset availability. Recent deep-learning
+approaches have shown promise for radar-based HRV estimation. However, a fair, re-
+producible head-to-head comparison is currently hindered by the absence of a publicly
+validated, sufficiently large radar–ECG/HRV dataset. Our pipeline is model-based and
+does not require supervised training, which enables stable operation with limited data,
+whereas deep networks typically demand diverse, large-scale cohorts to generalize reliably.
+As part of future work, we will curate and release a standardized radar–HRV dataset
+with unified acquisition protocols (resting, light speech/typing, mild movement) and will
+implement representative deep architectures under identical preprocessing and evaluation
+
+Sensors 2025, 25, 5607 18 of 19
+metrics as in Section 4, so that rigorous benchmarking against advanced deep learning
+methods becomes possible.
+Evaluation in dynamic and realistic scenarios. While this study intentionally targeted
+low-motion clinical settings (e.g., bedridden, burn, ICU) to align with the intended applica-
+tion, we recognize that dynamic behaviors—such as speaking, light typing, mild postural
+changes, and slow walking—are common in real life and can degrade radar-based HRV
+estimation. In future work, we will expand the experimental protocol to include controlled
+mild-motion tasks and ambient perturbations (e.g., background human movement and
+airflow), and report subject-independent results under fixed radar placements as well as
+moderate angle/distance shifts. We will leverage the Moving Target Indication (MTI) stage
+already present in our pipeline to suppress gross body motion and, where needed, augment
+it with micro-motion artifact rejection.
+Real-time latency and feasibility. In this study, the pipeline was executed of-
+fline to prioritize estimation fidelity. Nevertheless, all stages—MTI, phase demodula-
+tion/unwrapping, respiratory suppression, peak detection, and HRV index computation—
+are compatible with a streaming implementation. In practice, the apparent delay is gov-
+erned mainly by the analysis window required to produce stable HRV statistics: shorter
+windows yield faster updates but noisier estimates, whereas longer windows improve
+stability at the cost of responsiveness. Beat-to-beat indicators (e.g., IBI traces and instanta-
+neous heart rate) can be refreshed continuously as peaks are detected, while aggregate HRV
+indices can be updated on a rolling basis. The Hankel-structured operations in our method
+introduce additional computation; as future work, we will explore incremental/low-rank
+updates and lightweight implementations to ensure practical real-time operation without
+compromising accuracy.
+Author Contributions: Methodology, writing, G.C.; validation, Y.W.; resources, X.Z.; data curation,
+J.L. and X.L.; writing, B.L. and J.W.; supervision, Q.Z. All authors have read and agreed to the
+published version of the manuscript.
+Funding: This research did not receive any specific grant from funding agencies in the public,
+commercial, or not-for-profit sectors.
+Institutional Review Board Statement: The study was approved by the Bioscience and Medical
+Ethics Committee of North University of China (15 March 2024).
+Informed Consent Statement: Informed consent was obtained from all subjects involved in this
+study.
+Data Availability Statement: Data will be made available upon request.
+Acknowledgments: During the preparation of this work, the author used the AI-based language
+model service provided by OpenAI (ChatGPT) to enhance the language and readability of the
+manuscript. After utilizing this tool, the author(s) thoroughly reviewed and edited the content as
+necessary and take(s) full responsibility for the content of the publication.
+Conflicts of Interest: The authors declare no conflicts of interest.
+References
+1. ChuDuc, H.; NguyenPhan, K.; NguyenViet, D. A Review of Heart Rate Variability and its Applications. APCBEE Procedia 2013, 7,
+80–85. [CrossRef]
+2. Hamilton, J.L.; Alloy, L.B. Atypical reactivity of heart rate variability to stress and depression across development: Systematic
+review of the literature and directions for future research. Clin. Psychol. Rev. 2016, 50, 67–79. [CrossRef] [PubMed]
+3. Shastri, A.; Valecha, N.; Bashirov, E.; Tataria, H.; Lentmaier, M.; Tufvesson, F.; Rossi, M.; Casari, P . A Review of Millimeter
+Wave Device-Based Localization and Device-Free Sensing Technologies and Applications.IEEE Commun. Surv. T utor. 2022, 24,
+1708–1749. [CrossRef]
+
+Sensors 2025, 25, 5607 19 of 19
+4. Kranjec, J.; Beguš, S.; Geršak, G.; Šinkovec, M.; Drnovšek, J.; Hudoklin, D. Design and Clinical Evaluation of a Non-Contact Heart
+Rate Variability Measuring Device. Sensors 2017, 17, 2637. [CrossRef]
+5. Petrovic, V .L.; Jankovic, M.M.; Lupsic, A.V .; Mihajlovic, V .R.; Popovic-Bozovic, J.S. High-Accuracy Real-Time Monitoring of Heart
+Rate Variability Using 24 GHz Continuous-Wave Doppler Radar.IEEE Access 2019, 7, 74721–74733. [CrossRef]
+6. Xiong, Y.; Peng, Z.; Gu, C.; Li, S.; Wang, D.; Zhang, W. Differential Enhancement Method for Robust and Accurate Heart Rate
+Monitoring via Microwave Vital Sign Sensing. IEEE T rans. Instrum. Meas. 2020, 69, 7108–7118. [CrossRef]
+7. Antolinos, E.; García-Rial, F.; Hernández, C.; Montesano, D.; Godino-Llorente, J.I.; Grajal, J. Cardiopulmonary Activity Moni-
+toring Using Millimeter Wave Radars. Remote Sens. 2020, 12, 2265. [CrossRef]
+8. Feng, C.; Jiang, X.; Jeong, M.-G.; Hong, H.; Fu, C.-H.; Yang, X.; Wang, E.; Zhu, X.; Liu, X. Multitarget Vital Signs Measurement
+With Chest Motion Imaging Based on MIMO Radar. IEEE T rans. Microw. Theory T ech.2021, 69, 4735–4747. [CrossRef]
+9. Mercuri, M.; Sacco, G.; Hornung, R.; Zhang, P .; Visser, H.J.; Hijdra, M.; Liu, Y.-H.; Pisa, S.; van Liempd, B.; Torfs, T. 2-D
+Localization, Angular Separation and Vital Signs Monitoring Using a SISO FMCW Radar for Smart Long-Term Health Monitoring
+Environments. IEEE Internet Things J. 2021, 8, 11065–11077. [CrossRef]
+10. Mercuri, M.; Lu, Y.; Polito, S.; Wieringa, F.; Liu, Y.-H.; van der Veen, A.-J.; Van Hoof, C.; Torfs, T. Enabling Robust Radar-Based
+Localization and Vital Signs Monitoring in Multipath Propagation Environments. IEEE T rans. Biomed. Eng. 2021, 68, 3228–3240.
+[CrossRef]
+11. Wang, F.; Zeng, X.; Wu, C.; Wang, B.; Liu, K.J.R. mmHRV: Contactless Heart Rate Variability Monitoring Using Millimeter-Wave
+Radio. IEEE Internet Things J. 2021, 8, 16623–16636. [CrossRef]
+12. Pan, H.; Zou, Y.; Gu, M. A spectrum estimation approach for accurate heartbeat detection using Doppler radar based on
+combination of FTPR and TWV .EURASIP J. Adv. Signal Process. 2022, 2022, 1–22. [CrossRef]
+13. Soares, B.; Gouveia, C.; Albuquerque, D.; Pinho, P . Impact and Classification of Body Stature and Physiological Variability in the
+Acquisition of Vital Signs Using Continuous Wave Radar.Appl. Sci. 2024, 14, 921. [CrossRef]
+14. Luo, Y.; Yang, Y.; Ma, Y.; Huang, R.; Qi, A.; Ma, M.; Qi, Y. Enhancing Road Safety: Fast and Accurate Noncontact Driver HRV
+Detection Based on Huber–Kalman and Autocorrelation Algorithms. Biomimetics 2024, 9, 481. [CrossRef]
+15. Hur, M.; Han, K.; Hong, S. Multiple Human Heart Rate Variability Detection Using MIMO FMCW Radar With Differential Beam
+Techniques. IEEE T rans. Radar Syst. 2023, 1, 698–706. [CrossRef]
+16. Maleševi´ c, N.; Petrovi´ c, V .; Beli´ c, M.; Antfolk, C.; Mihajlovi´ c, V .; Jankovi´ c, M. Contactless Real-Time Heartbeat Detection via 24
+GHz Continuous-Wave Doppler Radar Using Artificial Neural Networks. Sensors 2020, 20, 2351. [CrossRef]
+17. Iyer, S.; Zhao, L.; Mohan, M.P .; Jimeno, J.; Siyal, M.Y.; Alphones, A.; Karim, M.F. mm-Wave Radar-Based Vital Signs Monitoring
+and Arrhythmia Detection Using Machine Learning. Sensors 2022, 22, 3106. [CrossRef]
+18. Yuan, S.; Fan, S.; Deng, Z.; Pan, P . Heart Rate Variability Monitoring Based on Doppler Radar Using Deep Learning.Sensors 2024,
+24, 2026. [CrossRef]
+19. Hu, W.; Zhao, Z.; Wang, Y.; Zhang, H.; Lin, F. Noncontact Accurate Measurement of Cardiopulmonary Activity Using a Compact
+Quadrature Doppler Radar Sensor. IEEE T rans. Biomed. Eng. 2013, 61, 725–735. [CrossRef]
+20. Ramachandran, G.; Singh, M. Three-dimensional reconstruction of cardiac displacement patterns on the chest wall during the P ,
+QRS and T-segments of the ECG by laser speckle inteferometry. Med Biol. Eng. Comput. 1989, 27, 525–530. [CrossRef]
+21. Aubert, A.E.; Welkenhuysen, L.; Montald j Wolf, L.; Geivers, H.; Minten, J.; Kesteloot, H.; Geest, H. Laser method for re-cording
+displacement of the heart and chest wall. J. Biomed. Eng. 1984, 6, 134–140. [CrossRef] [PubMed]
+22. Albanese, A.; Cheng, L.; Ursino, M.; Chbat, N.W. An integrated mathematical model of the human cardiopulmonary system:
+Model development. Am. J. Physiol. Circ. Physiol. 2016, 310, H899–H921. [CrossRef] [PubMed]
+23. Iwata, Y.; Thanh, H.T.; Sun, G.; Ishibashi, K. High Accuracy Heartbeat Detection from CW-Doppler Radar Using Singular Value
+Decomposition and Matched Filter. Sensors 2021, 21, 3588. [CrossRef] [PubMed]
+Disclaimer/Publisher’s Note: The statements, opinions and data contained in all publications are solely those of the individual
+author(s) and contributor(s) and not of MDPI and/or the editor(s). MDPI and/or the editor(s) disclaim responsibility for any injury to
+people or property resulting from any ideas, methods, instructions or products referred to in the content.

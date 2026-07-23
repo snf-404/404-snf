@@ -4,7 +4,7 @@
 //!
 //! Orchestrates the full upper layer:
 //!
-//! 1. reads IWR6843 frames via [`snf_radar`] (tokio-serial + cxx SDK parse),
+//! 1. reads IWR6843 frames via [`snf_radar`] (pure-Rust UART and TLV parsing),
 //! 2. extracts features and classifies fatigue via [`snf_fatigue`] (ONNX),
 //! 3. sends a [`PneumaticCommand`] to the CM33 over the generated `actuator`
 //!    transceiver, and consumes the returned [`PneumaticStatus`],
@@ -43,12 +43,12 @@ async fn main(mut context: Context) {
 
     // Sketch of the intended wiring (kept inert for the scaffold):
     //
-    //   let mut radar = snf_radar::RadarStream::open(Default::default());
+    //   let mut radar = snf_radar::RadarStream::open(Default::default())?;
     //   let model = snf_fatigue::FatigueModel::load("/opt/snf/fatigue.onnx")?;
     //   let mut ble = snf_ble::BluezPeripheral::new(None);
     //   ble.start().await?;
     //
-    //   while let Some(frame) = radar.next_frame().await {
+    //   while let Some(frame) = radar.next_frame().await? {
     //       let features = extract_features(&frame);
     //       let verdict = model.infer(&features)?;
     //       let cmd = PneumaticCommand { .. verdict .. };
