@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Vite+ (vp) sits on top of pnpm workspaces. The `catalog:` entries pin the
+# Vite+ toolchain packages; `packages` lists the workspace members.
+#
+# `apps/www` (the Nuxt + Web Bluetooth frontend) is scaffolded OUTSIDE this repo
+# and dropped in; it is listed here only so `vp install` links it against the
+# shared libraries under `packages/*`.
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vitest: npm:@voidzero-dev/vite-plus-test@latest
+  vite-plus: latest
+overrides:
+  vite: 'catalog:'
+  vitest: 'catalog:'
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: '*'
+    vitest: '*'
+packages:
+  - packages/*
+  - apps/*

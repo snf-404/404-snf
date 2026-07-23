@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# TOML formatting for Cargo.toml / Consortium.toml, matching consortium's style
+# (aligned entries, sorted keys).
+include = ["**/*.toml"]
+
+[formatting]
+align_entries = true
+reorder_keys  = true

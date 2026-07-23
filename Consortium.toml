@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 404-snf on STM32MP257: CA35 Linux application + CM33 real-time firmware.
+#
+# The CA35 owns the IWR6843 mmWave radar (serial), the BLE link (BlueZ), and the
+# ONNX fatigue pipeline. The CM33 owns the pneumatic actuation loop (pump PWM,
+# solenoid valves, pressure sensor). They exchange typed messages over one IPC
+# channel. There is intentionally NO OP-TEE endpoint and NO HMI in this build.
+#
+# Modeled on consortium/examples/melt-pot/stm32mp25 — see that example for the
+# full set of knobs. Endpoint compile targets come from the embedded chip
+# database, not this file.
+
+[profile]
+chip        = "stm32mp257fak3"
+devkit      = "stm32mp257f-dk"
+shared      = "./crates/shared"
+deploy_root = "/opt/snf"
+sysroot     = "/"
+kernel_recipe = "linux-stm32mp"
+
+[dts]
+mode = "merge" # or "overlay"
+
+[endpoints]
+# Runtime endpoint name -> crate root. No `optee` endpoint (no TEE).
+linux = "./crates/app"
+cm33  = "./crates/mcu"
+
+[dbg]
+# "auto" forwards decoded CM33 defmt frames to the CA35 `tracing` subscriber.
+mode = "auto"
+
+# defmt ring for the CM33, in SRAM2 (see the stm32mp25 chip database), just
+# above the IPC region below.
+[dbg.cm33]
+memory = { base = 0x00062000, length = 0x2000 }
+mtu    = 64
+
+# One shared-memory channel carrying pneumatic control both ways: the CA35
+# sends `PneumaticCommand` (derived from the fatigue verdict), the CM33 sends
+# back `PneumaticStatus` (measured pressure / pump state). Region lives in SRAM2.
+[[ipc.channel]]
+name          = "actuator"
+doorbell      = "ipcc1"
+pattern       = "memory"
+primary       = "linux"
+secondary     = "cm33"
+party.linux   = { chan = 0, type = "PneumaticCommand" }
+party.cm33    = { chan = 1, type = "PneumaticStatus" }
+config.memory = { base = 0x00064000, length = 0x4000 }
+mtu           = 128
+
+# ── Peripheral ownership ─────────────────────────────────────────────────────
+
+# IWR6843 radar data UART, owned by the application processor and read with
+# tokio-serial in `snf-radar`. (Pin names are placeholders pending board design.)
+[peripheral.usart1]
+owner    = "ap"
+secure   = false
+pin.tx   = "PA9"
+pin.rx   = "PA10"
+
+# Pressure sensor (I2C gauge, e.g. Honeywell MPRLS) on the CM33 pneumatic loop.
+[peripheral.i2c1]
+owner   = "cm33"
+secure  = false
+pin.sda = "PB0"
+pin.scl = "PB1"
+
+# Pump PWM (single timer channel -> DRV8871) driven by the CM33.
+[peripheral.tim3]
+owner   = "cm33"
+secure  = false
+pin.ch1 = "PA6"

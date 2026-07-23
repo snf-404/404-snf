@@ -1,0 +1,82 @@
+# Copyright 2026 Ethan Wu
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+[workspace]
+# Host-checkable library crates. The two endpoint crates (`crates/app`,
+# `crates/mcu`) are excluded: each `include!`s a `src/consortium.gen.rs`
+# emitted by the `csti build` pipeline and cross-compiles into its own
+# per-crate `target/`, exactly as the consortium melt-pot example does.
+members = ["crates/shared", "crates/radar", "crates/ble", "crates/fatigue"]
+exclude = ["crates/app", "crates/mcu"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Ethan Wu <7086cmd@gmail.com>"]
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+multiple_unsafe_ops_per_block = "deny"
+undocumented_unsafe_blocks    = "deny"
+unnecessary_safety_comment    = "deny"
+unnecessary_safety_doc        = "deny"
+
+# ── Consortium (path dependency on the sibling checkout) ──────────────────────
+# `404-snf` is a landing evaluation of the consortium framework; it is developed
+# side-by-side with it, so these are path deps into `../consortium/crates/*`.
+# Switching to a git dependency later is a change confined to this block.
+[workspace.dependencies]
+consortium-ipc = { path = "../consortium/crates/consortium-ipc", default-features = false }
+consortium-codec = { path = "../consortium/crates/consortium-codec", default-features = false }
+consortium-shared-memory = { path = "../consortium/crates/consortium-shared-memory" }
+consortium-ipc-transport-memory = { path = "../consortium/crates/consortium-ipc-transport-memory", default-features = false }
+consortium-ipc-doorbell-ipcc = { path = "../consortium/crates/consortium-ipc-doorbell-ipcc", default-features = false }
+consortium-ipc-doorbell-hsem = { path = "../consortium/crates/consortium-ipc-doorbell-hsem", default-features = false }
+consortium-runtime-app = { path = "../consortium/crates/consortium-runtime-app", default-features = false }
+consortium-runtime-mcu = { path = "../consortium/crates/consortium-runtime-mcu", default-features = false }
+consortium-hal-stm32mp2 = { path = "../consortium/crates/consortium-hal-stm32mp2", default-features = false }
+consortium-log = { path = "../consortium/crates/consortium-log", default-features = false }
+consortium-dbg = { path = "../consortium/crates/consortium-dbg", default-features = false }
+consortium-ort = { path = "../consortium/crates/consortium-ort" }
+
+# Shared internal crates.
+snf-shared = { path = "crates/shared" }
+snf-radar = { path = "crates/radar" }
+snf-ble = { path = "crates/ble" }
+snf-fatigue = { path = "crates/fatigue" }
+
+[profile.dev]
+panic = "abort"
+lto = false
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 1
+
+# The default debug profile is too slow and too big for the CM33 core; always
+# build the firmware with some optimizations enabled.
+[profile.dev.package.snf-mcu]
+opt-level = "s"
+
+[profile.release.package.snf-mcu]
+codegen-units = 1 # LLVM can perform better optimizations using a single thread
+debug         = 2 # prefer slower builds but better debugging experience

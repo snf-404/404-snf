@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+# defmt's compile-time filter defaults to `error` when DEFMT_LOG is unset, which
+# would drop the frames this firmware emits. Enable all levels; the CA35 decodes
+# them from the CDBG ring described by `[dbg.cm33]` in Consortium.toml.
+DEFMT_LOG = "trace"

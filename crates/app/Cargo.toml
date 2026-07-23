@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# This crate is built by the `consortium` build pipeline (`csti build`), which
+# writes the generated `src/consortium.gen.rs` (UIO bring-up, IPC transceivers,
+# defmt console) that `main.rs` `include!`s, then cross-compiles it for
+# aarch64-unknown-linux-gnu. It is intentionally excluded from the workspace so
+# it builds into its own per-crate `target/`, and therefore uses explicit paths
+# and versions rather than workspace inheritance.
+[package]
+name        = "snf-app"
+description = "404-snf CA35 Linux application: radar + fatigue + BLE orchestration"
+version     = "0.1.0"
+edition     = "2024"
+license     = "Apache-2.0"
+
+[[bin]]
+name = "snf-app"
+path = "src/main.rs"
+
+# Everything is gated to Linux: the application target is
+# aarch64-unknown-linux-gnu and the whole binary is `#![cfg(target_os = "linux")]`.
+[target.'cfg(target_os = "linux")'.dependencies]
+# Internal crates.
+snf-shared  = { path = "../shared" }
+snf-radar   = { path = "../radar" }
+snf-ble     = { path = "../ble" }
+snf-fatigue = { path = "../fatigue" }
+
+# Named directly by the generated `consortium.gen.rs`.
+consortium-codec = { path = "../../../consortium/crates/consortium-codec", features = ["postcard"] }
+consortium-ipc = { path = "../../../consortium/crates/consortium-ipc", features = ["std"] }
+consortium-ipc-doorbell-hsem = { path = "../../../consortium/crates/consortium-ipc-doorbell-hsem", features = ["std"] }
+consortium-ipc-doorbell-ipcc = { path = "../../../consortium/crates/consortium-ipc-doorbell-ipcc", features = ["std"] }
+consortium-ipc-transport-memory = { path = "../../../consortium/crates/consortium-ipc-transport-memory", features = ["std", "stm32mp25x"] }
+consortium-shared-memory = { path = "../../../consortium/crates/consortium-shared-memory" }
+consortium-runtime-app = { path = "../../../consortium/crates/consortium-runtime-app", features = ["stm32mp25x"] }
+consortium-log = { path = "../../../consortium/crates/consortium-log", features = ["tracing"] }
+
+# Application runtime.
+serde              = { version = "1", features = ["derive"] }
+tokio              = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

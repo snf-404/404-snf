@@ -1,0 +1,12 @@
+{
+  "name": "404-snf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "vp config"
+  },
+  "devDependencies": {
+    "vite-plus": "catalog:"
+  },
+  "packageManager": "pnpm@11.6.0"
+}

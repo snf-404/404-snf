@@ -1,0 +1,23 @@
+{
+  "name": "@snf/protocol",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared TypeScript definitions for the 404-snf BLE fatigue service (consumed by apps/www via Web Bluetooth)",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check"
+  }
+}

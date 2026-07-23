@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name              = "snf-fatigue"
+description       = "ONNX fatigue-level inference pipeline for 404-snf, built on consortium-ort"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# Default builds a pure-Rust stub so `cargo check` needs no ONNX Runtime.
+# Enable `ort` to run real inference through the framework's `consortium-ort`
+# crate (the landing-evaluation integration point).
+default = []
+ort     = ["dep:consortium-ort"]
+
+[dependencies]
+serde           = { version = "1", features = ["derive"] }
+consortium-ort  = { workspace = true, optional = true }
+
+[lints]
+workspace = true

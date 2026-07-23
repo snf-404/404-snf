@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name              = "snf-shared"
+description       = "Shared IpcSafe message types crossing the CA35 <-> CM33 boundary in 404-snf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# IpcSafe derive + trait; no_std, no alloc.
+consortium-ipc = { workspace = true }
+serde          = { version = "1", default-features = false, features = ["derive"] }
+
+[lints]
+workspace = true

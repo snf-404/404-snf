@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# This crate is built by the `consortium` build pipeline (`csti build`), which
+# writes the generated `src/consortium.gen.rs` (IPC endpoints + MPU/NVIC
+# bring-up) that `main.rs` `include!`s, then cross-compiles it for
+# thumbv8m.main-none-eabihf. It is intentionally excluded from the workspace so
+# it builds into its own per-crate `target/`, and uses explicit paths/versions.
+[package]
+name        = "snf-mcu"
+description = "404-snf CM33 firmware: pneumatic actuation controller"
+version     = "0.1.0"
+edition     = "2024"
+license     = "Apache-2.0"
+
+[[bin]]
+name = "snf-mcu"
+path = "src/main.rs"
+
+[dependencies]
+snf-shared = { path = "../shared" }
+
+# Named directly by the generated `consortium.gen.rs`.
+consortium-codec = { path = "../../../consortium/crates/consortium-codec", default-features = false, features = ["postcard"] }
+consortium-ipc = { path = "../../../consortium/crates/consortium-ipc", default-features = false }
+consortium-ipc-doorbell-hsem = { path = "../../../consortium/crates/consortium-ipc-doorbell-hsem", default-features = false, features = ["stm32mp25x"] }
+consortium-ipc-doorbell-ipcc = { path = "../../../consortium/crates/consortium-ipc-doorbell-ipcc", default-features = false, features = ["stm32mp25x"] }
+consortium-ipc-transport-memory = { path = "../../../consortium/crates/consortium-ipc-transport-memory", default-features = false, features = ["defmt", "stm32mp25x"] }
+consortium-shared-memory = { path = "../../../consortium/crates/consortium-shared-memory" }
+consortium-runtime-mcu = { path = "../../../consortium/crates/consortium-runtime-mcu", default-features = false, features = ["defmt", "macros"] }
+consortium-hal-stm32mp2 = { path = "../../../consortium/crates/consortium-hal-stm32mp2", default-features = false, features = ["defmt", "rt", "time-driver-gp-tim"] }
+consortium-dbg = { path = "../../../consortium/crates/consortium-dbg", default-features = false, features = ["logger"] }
+
+# Firmware runtime.
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+defmt = "1.1.0"
+embassy-executor = { version = "0.10.0", default-features = false, features = ["executor-thread", "platform-cortex-m"] }
+embassy-time = { version = "0.5.1", default-features = false, features = ["tick-hz-1_000_000"] }
+
+[profile.release]
+lto = true

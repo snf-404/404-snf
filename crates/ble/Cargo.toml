@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name              = "snf-ble"
+description       = "BLE upper layer for 404-snf: BlueZ GATT peripheral exposing the fatigue service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# BlueZ is the default and only implemented backend (OpenSTLinux ships it).
+# `trouble` is reserved for a future `trouble-host` HCI-direct backend and is
+# not implemented — see the note in `src/backend.rs`.
+default = ["bluez"]
+bluez   = ["dep:bluer"]
+trouble = []
+
+[dependencies]
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+futures = "0.3"
+serde   = { version = "1", features = ["derive"] }
+uuid    = "1"
+
+# `bluer` (BlueZ D-Bus bindings) is Linux-only. Target-gating it keeps
+# `cargo check` green on a macOS/dev host while staying real on the
+# aarch64-unknown-linux-gnu application target. The `bluez` module is
+# correspondingly gated to `target_os = "linux"`.
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd"], optional = true }
+
+[lints]
+workspace = true
