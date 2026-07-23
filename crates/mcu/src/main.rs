@@ -3,8 +3,8 @@
 //! 404-snf CM33 firmware: the pneumatic actuation controller.
 //!
 //! Receives [`PneumaticCommand`] from the CA35 over the generated `actuator`
-//! transceiver, drives the pump (PWM via TIM3 → DRV8871) and the solenoid valves
-//! (GPIO → TPL7407L), reads bladder pressure (I2C → Honeywell MPRLS), and reports
+//! transceiver, drives the pump (PWM via TIM3) and the vent valve (GPIO) through
+//! the driver module, reads bladder pressure (I2C → MPRLS), and reports
 //! [`PneumaticStatus`] back. See `hardware/pneumatics/README.md` for the BOM.
 //!
 //! All shared-memory / doorbell / MPU / NVIC / time-driver wiring lives in

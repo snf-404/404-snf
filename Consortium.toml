@@ -68,7 +68,7 @@ secure  = false
 pin.sda = "PB0"
 pin.scl = "PB1"
 
-# Pump PWM (single timer channel -> DRV8871) driven by the CM33.
+# Pump PWM (single timer channel -> driver module) driven by the CM33.
 [peripheral.tim3]
 owner   = "cm33"
 secure  = false
