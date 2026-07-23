@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared protocol definitions for the 404-snf BLE fatigue service.
+ * Protocol definitions for the 404-snf BLE fatigue service.
  *
- * The Nuxt + Web Bluetooth frontend (apps/www, scaffolded externally) imports
- * these UUIDs and the payload decoder so the wire format stays in one place.
- * Mirrors the Rust side in `crates/ble` (`FatigueReport`, `FATIGUE_*_UUID`).
- *
- * Scaffold: the byte layout below is a placeholder and must stay in lockstep
- * with the Rust encoder once that is implemented.
+ * Mirrors the Rust side in `crates/ble` (`FatigueReport`,
+ * `FATIGUE_*_UUID`). Keep the byte layout in sync with the Rust encoder.
  */
 
 /** GATT service UUID advertised by the device. */
@@ -27,10 +23,7 @@ export interface FatigueReport {
   seq: number
 }
 
-/**
- * Decode a notify payload (little-endian: u8 level, f32 confidence, u32 seq).
- * Placeholder layout — keep in sync with the Rust encoder.
- */
+/** Decode a notify payload (little-endian: u8 level, f32 confidence, u32 seq). */
 export function decodeFatigueReport(data: DataView): FatigueReport {
   return {
     level: data.getUint8(0),

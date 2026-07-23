@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// The value 404-snf publishes to subscribers: the current fatigue verdict.
 ///
 /// Placeholder shape, mirrored by the TypeScript definitions in
-/// `packages/protocol` that the Web Bluetooth frontend consumes.
+/// `apps/web/app/utils/protocol.ts` that the Web Bluetooth frontend consumes.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct FatigueReport {
     /// Fatigue level, 0 (alert) .. 100 (severely fatigued).

@@ -1,0 +1,7 @@
+{
+  "language": "语言",
+  "eyebrow": "非接触式疲劳监测",
+  "title": "连接设备，查看实时生理信号",
+  "description": "通过 Web Bluetooth 连接 404 SNF 设备，并在浏览器中查看疲劳指标。",
+  "connect": "连接设备"
+}

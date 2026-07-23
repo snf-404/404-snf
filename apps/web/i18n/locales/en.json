@@ -1,0 +1,7 @@
+{
+  "language": "Language",
+  "eyebrow": "Contactless fatigue monitoring",
+  "title": "Connect your device and inspect live signals",
+  "description": "Connect to a 404 SNF device over Web Bluetooth and view fatigue indicators in your browser.",
+  "connect": "Connect device"
+}

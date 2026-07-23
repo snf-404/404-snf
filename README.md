@@ -21,7 +21,7 @@ Web-Bluetooth frontend.
         IWR6843 ──serial──►  CA35 (Linux, tokio)                 CM33 (embassy)
                              ├─ snf-radar   (pure-Rust UART + TLV indicators)
                              ├─ snf-fatigue (ONNX via consortium-ort)
-                             ├─ snf-ble     (BlueZ / bluer) ──BLE──► apps/www (Nuxt)
+                             ├─ snf-ble     (BlueZ / bluer) ──BLE──► apps/web (Nuxt)
                              └─ snf-app  ◄── actuator IPC channel ──► snf-mcu
                                                                        (pump PWM,
                                                                         valves, pressure)
@@ -33,18 +33,17 @@ no `[hmi]`).
 
 ## Layout
 
-| Path | What |
-| --- | --- |
-| `crates/shared` | `snf-shared` — `IpcSafe` IPC message types |
-| `crates/radar` | `snf-radar` — pure-Rust IWR6843 UART, TLV parser, and indicators |
-| `crates/ble` | `snf-ble` — BlueZ GATT peripheral via `bluer` |
-| `crates/fatigue` | `snf-fatigue` — ONNX pipeline on `consortium-ort` |
-| `crates/app` | `snf-app` — CA35 Linux endpoint (excluded from workspace, pipeline-built) |
-| `crates/mcu` | `snf-mcu` — CM33 pneumatic firmware (excluded from workspace, pipeline-built) |
-| `packages/` | JS/TS libraries (Vite+ / `vp`) — `@snf/protocol` |
-| `apps/www` | Nuxt + Web Bluetooth frontend (**scaffolded externally**, not here) |
-| `models/` | 3D models (enclosure, bladder housings, radar mount) |
-| `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping |
+| Path                  | What                                                                          |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `crates/shared`       | `snf-shared` — `IpcSafe` IPC message types                                    |
+| `crates/radar`        | `snf-radar` — pure-Rust IWR6843 UART, TLV parser, and indicators              |
+| `crates/ble`          | `snf-ble` — BlueZ GATT peripheral via `bluer`                                 |
+| `crates/fatigue`      | `snf-fatigue` — ONNX pipeline on `consortium-ort`                             |
+| `crates/app`          | `snf-app` — CA35 Linux endpoint (excluded from workspace, pipeline-built)     |
+| `crates/mcu`          | `snf-mcu` — CM33 pneumatic firmware (excluded from workspace, pipeline-built) |
+| `apps/web`            | Nuxt + Web Bluetooth frontend                                                 |
+| `models/`             | 3D models (enclosure, bladder housings, radar mount)                          |
+| `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping                                      |
 
 `crates/app` and `crates/mcu` are **excluded from the cargo workspace**: each
 `include!`s a `consortium.gen.rs` emitted by `csti build` and cross-compiles into

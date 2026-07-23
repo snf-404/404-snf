@@ -33,17 +33,17 @@ build:
 
 # ── JavaScript workspace (Vite+) ─────────────────────────────────────────────
 
-# Install JS dependencies across packages/* and apps/*.
+# Install the web application's JS dependencies.
 js-install:
-    vp install
+    pnpm install
 
-# Build the shared TS libraries under packages/*.
-js-pack:
-    vp pack
+# Build the Nuxt web application.
+js-build:
+    pnpm --filter @snf/web build
 
-# Run the frontend dev server (apps/www is provisioned externally; see its README).
+# Run the frontend dev server (apps/web).
 js-dev:
-    vp dev
+    pnpm --filter @snf/web dev
 
 # ── Linux dev container (Apple `container` on macOS) ──────────────────────────
 # The Rust host checks above run natively on macOS (radar/ble host libs). But the

@@ -30,4 +30,7 @@ dist/
 node_modules/
 dist/
 .vite/
+.vite-hooks/
+.nuxt/
+.output/
 *.tsbuildinfo
