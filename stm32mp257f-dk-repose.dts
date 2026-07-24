@@ -628,16 +628,15 @@
 				#size-cells = <0x00>;
 				access-controllers = <0x18 0x03>;
 				power-domains = <0x19>;
-				pinctrl-names = "default\0sleep";
-				pinctrl-0 = <0x19e>;
-				pinctrl-1 = <0x19f>;
 				status = "okay";
 				phandle = <0xc7>;
 
 				pwm {
 					compatible = "st,stm32mp25-pwm";
-					#pwm-cells = <0x03>;
-					status = "disabled";
+					pinctrl-names = "default\0sleep";
+					pinctrl-0 = <0x19e>;
+					pinctrl-1 = <0x19f>;
+					status = "okay";
 				};
 
 				timer@3 {
@@ -663,16 +662,15 @@
 				#size-cells = <0x00>;
 				access-controllers = <0x18 0x04>;
 				power-domains = <0x19>;
-				pinctrl-names = "default\0sleep";
-				pinctrl-0 = <0x1a0>;
-				pinctrl-1 = <0x1a1>;
 				status = "okay";
 				phandle = <0xc8>;
 
 				pwm {
 					compatible = "st,stm32mp25-pwm";
-					#pwm-cells = <0x03>;
-					status = "disabled";
+					pinctrl-names = "default\0sleep";
+					pinctrl-0 = <0x1a0>;
+					pinctrl-1 = <0x1a1>;
+					status = "okay";
 				};
 
 				timer@4 {
@@ -4030,7 +4028,7 @@
 				phandle = <0x19e>;
 
 				pins {
-					pinmux = <0x107>;
+					pinmux = <0x108>;
 					bias-disable;
 					drive-push-pull;
 					slew-rate = <0x00>;
@@ -4049,7 +4047,7 @@
 				phandle = <0x1a0>;
 
 				pins {
-					pinmux = <0x7809>;
+					pinmux = <0x780a>;
 					bias-disable;
 					drive-push-pull;
 					slew-rate = <0x00>;

@@ -6,18 +6,16 @@
 //! PWM-capable timers whose channels reach the DK's 40-pin connector and the
 //! board's RIF configuration reaches them only from the AP:
 //!
-//! | Load       | Timer      | Pin  | Connector | Driver          |
-//! | ---------- | ---------- | ---- | --------- | --------------- |
-//! | Pump       | `TIM4_CH2` | `PA1`| pin 33    | FR120N module   |
-//! | Vent valve | `TIM5_CH1` | `PH8`| pin 31    | FR120N module   |
+//! | Load       | Timer      | Pin  | Connector | sysfs            | Driver        |
+//! | ---------- | ---------- | ---- | --------- | ---------------- | ------------- |
+//! | Pump       | `TIM4_CH2` | `PA1`| pin 33    | `pwmchip4/pwm1`  | FR120N module |
+//! | Vent valve | `TIM5_CH1` | `PH8`| pin 31    | `pwmchip8/pwm0`  | FR120N module |
 //!
-//! Each timer's `pwm-stm32` provider appears as its own `/sys/class/pwm/pwmchipN`
-//! with a single channel, so the chip indices — not the channel indices — are
-//! what distinguishes them. Those indices are assigned in probe order and are
-//! **not** stable across kernel or device-tree changes; [`PneumaticConfig`]
-//! carries them so they can be corrected without touching this logic. See
-//! `hardware/pneumatics/README.md` for how to identify the two chips on a live
-//! board.
+//! Each timer's `pwm-stm32` provider appears as its own `/sys/class/pwm/pwmchipN`.
+//! Those chip indices are assigned in probe order and are **not** stable across
+//! kernel or device-tree changes, so [`PneumaticConfig`] carries them and they
+//! can be corrected without touching this logic. See
+//! `hardware/pneumatics/README.md` for how to re-identify them on a live board.
 //!
 //! # Fail-safe
 //!
@@ -55,27 +53,31 @@ pub const PUMP_PWM_HZ: u32 = 1_000;
 /// off, so this just has to be somewhere the solenoid cannot follow.
 pub const VALVE_PWM_HZ: u32 = 1_000;
 
-/// Which `/sys/class/pwm/pwmchipN` backs each load.
+/// Which `/sys/class/pwm/pwmchipN` and channel backs each load.
+///
+/// The defaults are what the DK enumerates: `TIM4_CH2` is `pwmchip4/pwm1` and
+/// `TIM5_CH1` is `pwmchip8/pwm0`. Note that `pwm-stm32` numbers channels by the
+/// **timer's own** channel index — `CH1` is `pwm0`, `CH2` is `pwm1` — regardless
+/// of how many the device tree exposes, which is why the pump sits on channel 1
+/// of a chip whose other channels are unused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PneumaticConfig {
     /// `pwmchip` index of the TIM4 provider (pump).
     pub pump_chip: u32,
-    /// Channel within the pump's chip. `TIM4_CH2` is the timer's second channel,
-    /// but `pwm-stm32` numbers only the channels the device tree exposes, so a
-    /// single-channel node is channel `0`.
+    /// Channel within the pump's chip: `1` for `TIM4_CH2`.
     pub pump_channel: u32,
     /// `pwmchip` index of the TIM5 provider (vent valve).
     pub valve_chip: u32,
-    /// Channel within the valve's chip.
+    /// Channel within the valve's chip: `0` for `TIM5_CH1`.
     pub valve_channel: u32,
 }
 
 impl Default for PneumaticConfig {
     fn default() -> Self {
         Self {
-            pump_chip: 0,
-            pump_channel: 0,
-            valve_chip: 1,
+            pump_chip: 4,
+            pump_channel: 1,
+            valve_chip: 8,
             valve_channel: 0,
         }
     }

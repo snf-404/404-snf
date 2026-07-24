@@ -628,15 +628,14 @@
 				#size-cells = <0x00>;
 				access-controllers = <0x18 0x03>;
 				power-domains = <0x19>;
-				pinctrl-names = "default", "sleep";
-				pinctrl-0 = <&tim4_pwm_pins_mx>;
-				pinctrl-1 = <&tim4_pwm_sleep_pins_mx>;
 				status = "okay";
 				phandle = <0xc7>;
 
 				pwm {
 					compatible = "st,stm32mp25-pwm";
-					#pwm-cells = <0x03>;
+					pinctrl-names = "default", "sleep";
+					pinctrl-0 = <&tim4_pwm_pins_mx>;
+					pinctrl-1 = <&tim4_pwm_sleep_pins_mx>;
 					status = "okay";
 				};
 
@@ -663,15 +662,14 @@
 				#size-cells = <0x00>;
 				access-controllers = <0x18 0x04>;
 				power-domains = <0x19>;
-				pinctrl-names = "default", "sleep";
-				pinctrl-0 = <&tim5_pwm_pins_mx>;
-				pinctrl-1 = <&tim5_pwm_sleep_pins_mx>;
 				status = "okay";
 				phandle = <0xc8>;
 
 				pwm {
 					compatible = "st,stm32mp25-pwm";
-					#pwm-cells = <0x03>;
+					pinctrl-names = "default", "sleep";
+					pinctrl-0 = <&tim5_pwm_pins_mx>;
+					pinctrl-1 = <&tim5_pwm_sleep_pins_mx>;
 					status = "okay";
 				};
 
@@ -4029,7 +4027,7 @@
 			tim4_pwm_pins_mx: tim4_pwm_mx-0 {
 
 				pins {
-					pinmux = <0x0107>;
+					pinmux = <0x0108>;
 					bias-disable;
 					drive-push-pull;
 					slew-rate = <0x00>;
@@ -4046,7 +4044,7 @@
 			tim5_pwm_pins_mx: tim5_pwm_mx-0 {
 
 				pins {
-					pinmux = <0x7809>;
+					pinmux = <0x780a>;
 					bias-disable;
 					drive-push-pull;
 					slew-rate = <0x00>;

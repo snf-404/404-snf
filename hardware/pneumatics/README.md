@@ -88,18 +88,21 @@ Reflected in [`Consortium.toml`](../../Consortium.toml) `[peripheral.*]`
 (owner = `ap`), and enabled in the device tree by
 [`hardware/dts/`](../dts/README.md):
 
-| Signal        | STM32MP257 peripheral | Pin   | Connector pin | Drives                     |
-| ------------- | --------------------- | ----- | ------------- | -------------------------- |
-| Pump PWM      | `TIM4_CH2`            | `PA1` | 33            | FR120N module #1 trigger   |
-| Vent valve    | `TIM5_CH1`            | `PH8` | 31            | FR120N module #2 trigger   |
-| Pressure read | `I2C2` (`PF0`/`PF2`)  | —     | 27 / 28       | MPRLS breakout (not wired) |
+| Signal        | STM32MP257 peripheral | Pin   | Connector pin | sysfs           | Drives                     |
+| ------------- | --------------------- | ----- | ------------- | --------------- | -------------------------- |
+| Pump PWM      | `TIM4_CH2`            | `PA1` | 33            | `pwmchip4/pwm1` | FR120N module #1 trigger   |
+| Vent valve    | `TIM5_CH1`            | `PH8` | 31            | `pwmchip8/pwm0` | FR120N module #2 trigger   |
+| Pressure read | `I2C2` (`PF0`/`PF2`)  | —     | 27 / 28       | —               | MPRLS breakout (not wired) |
 
-Each timer's `pwm-stm32` provider appears as **its own** `/sys/class/pwm/pwmchipN`
-with one channel, so the two loads are told apart by _chip_ index, not channel
-index. Those indices come from probe order and are not stable across kernel or
-device-tree changes — `PneumaticConfig` in `crates/app/src/pneumatics.rs` carries
-them so they can be corrected without touching the control logic. To identify
-them on a live board:
+Each timer's `pwm-stm32` provider appears as **its own** `/sys/class/pwm/pwmchipN`.
+Within a chip, channels are numbered by the **timer's own** channel index — `CH1`
+is `pwm0`, `CH2` is `pwm1` — which is why the pump lands on channel 1 and the
+valve on channel 0.
+
+The chip indices come from probe order and are not stable across kernel or
+device-tree changes. `PneumaticConfig` in `crates/app/src/pneumatics.rs` carries
+them (defaulting to the values above) so they can be corrected without touching
+the control logic. To re-identify them on a live board:
 
 ```bash
 for chip in /sys/class/pwm/pwmchip*; do echo "$chip -> $(readlink -f "$chip/device")"; done

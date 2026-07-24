@@ -59,7 +59,22 @@ the preprocess-and-compile step itself.
 for chip in /sys/class/pwm/pwmchip*; do echo "$chip -> $(readlink -f "$chip/device")"; done
 ```
 
-`40020000.timer` is TIM4 (pump), `40030000.timer` is TIM5 (valve). Their
-`pwmchipN` indices come from probe order and are **not** stable across kernel or
-device-tree changes; put whatever you see into `PneumaticConfig` in
-[`crates/app/src/pneumatics.rs`](../../crates/app/src/pneumatics.rs).
+`40020000.timer` is TIM4 (pump), `40030000.timer` is TIM5 (valve). On this board
+they land at **`pwmchip4`** and **`pwmchip8`**, which is what `PneumaticConfig` in
+[`crates/app/src/pneumatics.rs`](../../crates/app/src/pneumatics.rs) defaults to.
+Those indices come from probe order and are **not** stable across kernel or
+device-tree changes, so re-check after any change to either and update the
+config.
+
+Channels within a chip are numbered by the **timer's own** channel index, so the
+pump is `pwmchip4/pwm1` (`TIM4_CH2`) and the valve is `pwmchip8/pwm0`
+(`TIM5_CH1`).
+
+A quick way to confirm the pin actually moves — and thus that the `AF` above is
+right — without any hardware attached, is to drive one channel to 50 % and scope
+or meter it:
+
+```bash
+cd /sys/class/pwm/pwmchip4 && echo 1 > export && cd pwm1 &&
+  echo 1000000 > period && echo 500000 > duty_cycle && echo 1 > enable
+```
