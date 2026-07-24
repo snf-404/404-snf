@@ -2,13 +2,26 @@
 
 # 404-snf on STM32MP257: CA35 Linux application + CM33 real-time firmware.
 #
-# The CA35 owns the IWR6843 mmWave radar (serial), the BLE link (BlueZ), the ONNX
-# fatigue pipeline, and the pneumatic actuation loop (pump PWM + pressure ADC) —
-# no PWM-capable timer the CM33 could reach is free on the DK, so actuation runs
-# on Linux. The CM33 is the independent safety supervisor: it holds a deadman on
-# the CA35 heartbeat (over the IPC channel below) and cuts the pump power rail via
-# one GPIO if Linux stops pinging. They exchange typed messages over one IPC
-# channel. There is intentionally NO OP-TEE endpoint and NO HMI.
+# The IWR6843 connects over its USB virtual COM port, so the radar is an ordinary
+# Linux tty and the sensing pipeline runs entirely on the CA35 (`snf-radar` over
+# tokio-serial). The actuators are there too, because of what the board's RIF
+# configuration already grants each core — which this project deliberately does
+# NOT re-provision:
+#
+#   * **TIM4 and TIM5 are reachable only from the CA35.** They are the two
+#     PWM-capable timers whose channels reach the 40-pin GPIO connector
+#     (`TIM4_CH2` on `PA1`/pin 33, `TIM5_CH1` on `PH8`/pin 31), and the AP owns
+#     them, so the pneumatic pump and vent valve are driven from Linux through
+#     `pwm-stm32` / sysfs.
+#   * **USART6 is reachable only from the CM33**, pins included. The CM33 keeps
+#     that port and offers parsed frames over the `radar` channel below, for a
+#     build where the sensor is wired to those pins instead of USB. It is not the
+#     default source; with virtual COM there is nothing on USART6 to read.
+#
+# So the data path is: radar → CA35 (tty, TLV parse, indicators, ONNX fatigue,
+# BLE) → CA35 (TIM4/TIM5 PWM) → FR120N MOSFET modules → pump + vent valve. The
+# CM33 holds no actuator line at all. There is intentionally NO OP-TEE endpoint
+# and NO HMI.
 #
 # Modeled on consortium/examples/melt-pot/stm32mp25 — see that example for the
 # full set of knobs. Endpoint compile targets come from the embedded chip
@@ -40,34 +53,52 @@ mode = "auto"
 memory = { base = 0x00062000, length = 0x2000 }
 mtu    = 64
 
-# One shared-memory channel carrying pneumatic control both ways: the CA35
-# sends `PneumaticCommand` (derived from the fatigue verdict), the CM33 sends
-# back `PneumaticStatus` (measured pressure / pump state). Region lives in SRAM2.
+# One shared-memory channel carrying parsed frames up and the stream gate down:
+# the CM33 sends `RadarReport` (one per radar frame), the CA35 sends
+# `RadarControl` (stream on/off plus a liveness sequence). Region lives in SRAM2.
+#
+# `mtu` must hold one postcard-encoded `RadarReport`: 32 points of four zigzag
+# varint `i16`s (≤12 B each) plus the frame's aggregates, so ~400 B worst case
+# and 512 leaves headroom. Each channel carves out one slot pair
+# (`SLOT_HEADER + mtu` each way), well inside the 16 KiB region.
 [[ipc.channel]]
-name          = "actuator"
+name          = "radar"
 doorbell      = "ipcc1"
 pattern       = "memory"
 primary       = "linux"
 secondary     = "cm33"
-party.linux   = { chan = 0, type = "PneumaticCommand" }
-party.cm33    = { chan = 1, type = "PneumaticStatus" }
+party.linux   = { chan = 0, type = "RadarControl" }
+party.cm33    = { chan = 1, type = "RadarReport" }
 config.memory = { base = 0x00064000, length = 0x4000 }
-mtu           = 128
+mtu           = 512
 
 # ── Peripheral ownership ─────────────────────────────────────────────────────
+#
+# These entries are declarative: `csti` only generates bring-up for I2C and GPIO
+# blocks, and only for controller cores. USART and timer blocks are recorded here
+# for the record; their drivers are constructed by hand (CM33: `BufferedUart`
+# over the raw base, see `crates/mcu/src/main.rs`; CA35: sysfs PWM, see
+# `crates/app/src/sysfs_pwm.rs`).
 
-# IWR6843 radar data UART, owned by the application processor and read with
-# tokio-serial in `snf-radar`. (Pin names are placeholders pending board design.)
-[peripheral.usart1]
-owner    = "ap"
+# USART6, owned by the CM33 — port and pins both, as the board already provisions
+# it. `PF13`/`PF14` are pins 8 and 10 of the 40-pin connector. Wired to the
+# IWR6843 this is a second radar path; with the sensor on virtual COM it is idle.
+[peripheral.usart6]
+owner    = "cm33"
 secure   = false
-pin.tx   = "PA9"
-pin.rx   = "PA10"
+pin.tx   = "PF13"
+pin.rx   = "PF14"
 
-# CM33 safety-interlock output: one GPIO driving the load-switch on the pump's
-# motor rail. High = rail energized, Low = rail cut (fail-safe). The generated
-# bring-up hands the CM33 a `gpioh` port handle; the firmware picks the pin. The
-# specific pin is a placeholder pending board design.
-[peripheral.gpioh]
-owner  = "cm33"
-secure = false
+# Pump PWM, owned by the AP. `TIM4_CH2` on `PA1` = connector pin 33. Surfaces as
+# a `pwm-stm32` chip under `/sys/class/pwm/` once the timer's `pwm` subnode is
+# enabled in the Linux device tree.
+[peripheral.tim4]
+owner     = "ap"
+secure    = false
+pin.ch2   = "PA1"
+
+# Vent-valve PWM, owned by the AP. `TIM5_CH1` on `PH8` = connector pin 31.
+[peripheral.tim5]
+owner     = "ap"
+secure    = false
+pin.ch1   = "PH8"

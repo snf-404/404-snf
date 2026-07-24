@@ -9,12 +9,16 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = []
+default = ["serial"]
+# Local `tokio-serial` transport (`RadarStream`). Bench/dev-host path only: on
+# target the CM33 owns USART6 and the CA35 pushes IPC chunks into `RadarDecoder`
+# directly, so the on-target build can drop tokio-serial entirely.
+serial = ["dep:tokio", "dep:tokio-serial"]
 vital-signs = []
 
 [dependencies]
-tokio        = { version = "1", features = ["rt", "macros", "sync", "io-util"] }
-tokio-serial = "5"
+tokio        = { version = "1", features = ["rt", "macros", "sync", "io-util"], optional = true }
+tokio-serial = { version = "5", optional = true }
 serde        = { version = "1", features = ["derive"] }
 
 [lints]

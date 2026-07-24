@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// 404-snf board wiring for the STM32MP257F-DK, on top of the device tree that
+// `csti build` emits into `dist/dts/linux/`.
+//
+// Hand-maintained on purpose: `csti` generates the UIO carveouts, the doorbell
+// node and the remoteproc fix-ups, but it has no codegen for timers or PWM, so
+// the `[peripheral.tim4]`/`[peripheral.tim5]` entries in `Consortium.toml` are
+// declarative and this is what makes them true on the Linux side.
+//
+// Scope is deliberately narrow: enable the two AP-side PWM providers and mux
+// their pins. Nothing here touches RIF, and nothing here touches USART6 — that
+// port and its pins already belong to the CM33.
+
+&pinctrl {
+	/* Pump: TIM4_CH2 on PA1 — 40-pin GPIO connector pin 33. */
+	pwm4_pins_a: pwm4-0 {
+		pins {
+			pinmux = <STM32_PINMUX('A', 1, AF2)>; /* TIM4_CH2 — CHECK AF */
+			bias-pull-down;
+			drive-push-pull;
+			slew-rate = <0>;
+		};
+	};
+
+	pwm4_sleep_pins_a: pwm4-sleep-0 {
+		pins {
+			pinmux = <STM32_PINMUX('A', 1, ANALOG)>; /* TIM4_CH2 */
+		};
+	};
+
+	/* Vent valve: TIM5_CH1 on PH8 — 40-pin GPIO connector pin 31. */
+	pwm5_pins_a: pwm5-0 {
+		pins {
+			pinmux = <STM32_PINMUX('H', 8, AF2)>; /* TIM5_CH1 — CHECK AF */
+			bias-pull-down;
+			drive-push-pull;
+			slew-rate = <0>;
+		};
+	};
+
+	pwm5_sleep_pins_a: pwm5-sleep-0 {
+		pins {
+			pinmux = <STM32_PINMUX('H', 8, ANALOG)>; /* TIM5_CH1 */
+		};
+	};
+};
+
+/*
+ * TIM4 → pump PWM. The vendor tree ships this node disabled with its `pwm`
+ * subnode disabled too; both have to come up for a `pwm-stm32` provider to
+ * appear under /sys/class/pwm/.
+ */
+&timers4 {
+	status = "okay";
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+
+	pwm {
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&pwm4_pins_a>;
+		pinctrl-1 = <&pwm4_sleep_pins_a>;
+		status = "okay";
+	};
+};
+
+/* TIM5 → vent-valve PWM. */
+&timers5 {
+	status = "okay";
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+
+	pwm {
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&pwm5_pins_a>;
+		pinctrl-1 = <&pwm5_sleep_pins_a>;
+		status = "okay";
+	};
+};

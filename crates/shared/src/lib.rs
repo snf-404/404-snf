@@ -8,11 +8,14 @@
 //! constructs so the same layout is valid on both the 64-bit CA35 and the
 //! 32-bit CM33.
 //!
-//! Scaffold only: fields are placeholders and will change once the pneumatic
-//! control protocol is firmed up.
+//! The one channel carries the radar: the CM33 owns USART6, parses the IWR6843's
+//! TLV frames with [`detect`], and reports one [`RadarReport`] per frame; the
+//! CA35 gates it with [`RadarControl`]. Actuation does not appear here — the
+//! pneumatics hang off TIM4/TIM5 on the CA35 and never cross the core boundary.
 
 #![no_std]
 
+pub mod detect;
 mod ipc;
 
-pub use ipc::{PneumaticCommand, PneumaticStatus};
+pub use ipc::{RADAR_REPORT_POINTS, RadarControl, RadarPointFixed, RadarReport};

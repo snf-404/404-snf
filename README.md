@@ -5,19 +5,31 @@ the [consortium](../consortium) framework** (a real multi-core application built
 to validate consortium's async inter-processor primitives in practice).
 
 The device senses a person with a **TI IWR6843** mmWave radar, classifies
+<<<<<<< HEAD
 **fatigue level** with an **ONNX** model, drives **pneumatic actuators** through
 the **CM33** real-time core, and exposes state over **BLE** to a Lingguang flash
 app.
+=======
+**fatigue level** with an **ONNX** model, drives **pneumatic actuators** from the
+**CA35**, and exposes state over **BLE** to a phone / Web-Bluetooth frontend.
+>>>>>>> 64432a1 (feat: add cube config)
 
 > **Scaffold only.** Structure, manifests, crate skeletons, stub types, and READMEs
 > are in place; there is no complete product implementation yet. The firm inputs
 > are: STM32MP257 following consortium's melt-pot example, **no TEE and no HMI**,
-> pure-Rust tokio-serial radar handling, BlueZ for BLE, pneumatic control on the
-> MCU, and an ONNX fatigue pipeline.
+> pure-Rust tokio-serial radar handling, BlueZ for BLE, an ONNX fatigue pipeline,
+> and the RIF-imposed placement of the pneumatics on the CA35 (TIM4/TIM5).
 
 ## Architecture
 
+The IWR6843 connects over its **USB virtual COM port**, so the radar is an
+ordinary Linux tty and the sensing pipeline is entirely on the CA35. The
+actuators are there too, because the board's RIF configuration — which this
+project deliberately does **not** re-provision — reaches **TIM4/TIM5, the only
+PWM-capable timers that land on the 40-pin connector, from the AP alone**:
+
 ```
+<<<<<<< HEAD
         IWR6843 ──serial──►  CA35 (Linux, tokio)                 CM33 (embassy)
                              ├─ snf-radar   (pure-Rust UART + TLV indicators)
                              ├─ snf-fatigue (ONNX via consortium-ort)
@@ -25,14 +37,38 @@ app.
                              └─ snf-app  ◄── actuator IPC channel ──► snf-mcu
                                                                        (pump PWM,
                                                                         valves, pressure)
+=======
+  IWR6843 ──USB virtual COM──►  CA35 (Linux, tokio)
+                                ├─ snf-radar   (tokio-serial UART + TLV + indicators)
+                                ├─ snf-fatigue (ONNX via consortium-ort)
+                                ├─ snf-ble     (BlueZ) ──BLE──► apps/web (Nuxt)
+                                └─ TIM4/TIM5 PWM ──► FR120N ──► pump + vent valve
+
+                                CM33 (embassy)
+                                └─ snf-mcu ── radar IPC ──► USART6 front-end,
+                                                            retained, not the
+                                                            default source
+>>>>>>> 64432a1 (feat: add cube config)
 ```
 
+The CM33 owns USART6 — RIF reaches that port from the CM33 alone — and carries a
+`no_std` TLV parser that reports fixed-size `RadarReport`s over the `radar` IPC
+channel, for a build where the sensor is wired to those pins instead of USB. With
+virtual COM there is nothing on USART6 to read, so `snf-app` only uses the
+channel as a start-up link check.
+
 Cross-core messaging uses consortium's typed IPC over shared memory, declared in
-[`Consortium.toml`](Consortium.toml) (`actuator` channel; no `optee` endpoint,
-no `[hmi]`).
+[`Consortium.toml`](Consortium.toml) (`radar` channel; no `optee` endpoint, no
+`[hmi]`).
+
+The CM33 holds no actuator line, so there is no independent interlock behind the
+pneumatics; fail-safety comes from a normally-open vent valve plus an inflation
+ceiling in the control loop. See
+[`hardware/pneumatics/README.md`](hardware/pneumatics/README.md).
 
 ## Layout
 
+<<<<<<< HEAD
 | Path                  | What                                                                          |
 | --------------------- | ----------------------------------------------------------------------------- |
 | `crates/shared`       | `snf-shared` — `IpcSafe` IPC message types                                    |
@@ -44,6 +80,20 @@ no `[hmi]`).
 | `apps/lingguang`      | React + TypeScript Lingguang flash app                                        |
 | `models/`             | 3D models (enclosure, bladder housings, radar mount)                          |
 | `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping                                      |
+=======
+| Path                  | What                                                                           |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `crates/shared`       | `snf-shared` — `IpcSafe` IPC types + the CM33's `no_std` TLV parser            |
+| `crates/radar`        | `snf-radar` — tokio-serial transport, TLV parser, and indicators               |
+| `crates/ble`          | `snf-ble` — BlueZ GATT peripheral via `bluer`                                  |
+| `crates/fatigue`      | `snf-fatigue` — ONNX pipeline on `consortium-ort`                              |
+| `crates/app`          | `snf-app` — CA35 Linux endpoint (excluded from workspace, pipeline-built)      |
+| `crates/mcu`          | `snf-mcu` — CM33 radar front-end (excluded from workspace, pipeline-built)     |
+| `apps/web`            | Nuxt + Web Bluetooth frontend                                                  |
+| `models/`             | 3D models (enclosure, bladder housings, radar mount)                           |
+| `hardware/pneumatics` | pump/valve/driver BOM + CA35 pin mapping                                       |
+| `hardware/dts`        | hand-maintained device-tree fragment (`csti` generates neither PWM nor pinmux) |
+>>>>>>> 64432a1 (feat: add cube config)
 
 `crates/app` and `crates/mcu` are **excluded from the cargo workspace**: each
 `include!`s a `consortium.gen.rs` emitted by `csti build` and cross-compiles into

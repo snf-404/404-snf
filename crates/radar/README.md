@@ -3,6 +3,15 @@
 Pure-Rust IWR6843 data-UART transport, TLV parsing, and transparent signal
 indicators. No C/C++ compiler, native shim, or TI host SDK is used.
 
+> The IWR6843 reaches the board over its **USB virtual COM port**, so the radar
+> is an ordinary Linux tty and `RadarStream` reads it directly on the CA35 —
+> on target and on a dev host alike. That is the `serial` feature, on by default.
+>
+> The feature exists because the CM33 also carries a `no_std` parser for the same
+> packets (`snf-shared`'s `detect` module), for a build where the sensor is wired
+> to USART6 instead. That path is not the default; see
+> [`crates/mcu`](../mcu/README.md).
+
 The default build supports the factory Out-of-Box point-cloud firmware. TI
 Vital Signs support is deliberately opt-in because it requires different
 firmware on the radar:

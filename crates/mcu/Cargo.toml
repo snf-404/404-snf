@@ -7,7 +7,7 @@
 # it builds into its own per-crate `target/`, and uses explicit paths/versions.
 [package]
 name        = "snf-mcu"
-description = "404-snf CM33 firmware: pneumatic actuation controller"
+description = "404-snf CM33 firmware: IWR6843 radar UART relay"
 version     = "0.1.0"
 edition     = "2024"
 license     = "Apache-2.0"
@@ -27,7 +27,7 @@ consortium-ipc-doorbell-ipcc = { path = "../../../consortium/crates/consortium-i
 consortium-ipc-transport-memory = { path = "../../../consortium/crates/consortium-ipc-transport-memory", default-features = false, features = ["defmt", "stm32mp25x"] }
 consortium-shared-memory = { path = "../../../consortium/crates/consortium-shared-memory" }
 consortium-runtime-mcu = { path = "../../../consortium/crates/consortium-runtime-mcu", default-features = false, features = ["defmt", "macros"] }
-consortium-hal-stm32mp2 = { path = "../../../consortium/crates/consortium-hal-stm32mp2", default-features = false, features = ["defmt", "rt", "gpio", "time-driver-gp-tim"] }
+consortium-hal-stm32mp2 = { path = "../../../consortium/crates/consortium-hal-stm32mp2", default-features = false, features = ["defmt", "rt", "uart", "time-driver-gp-tim"] }
 consortium-dbg = { path = "../../../consortium/crates/consortium-dbg", default-features = false, features = ["logger"] }
 
 # Firmware runtime.

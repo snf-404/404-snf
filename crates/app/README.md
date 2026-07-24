@@ -1,8 +1,18 @@
 # snf-app — CA35 Linux endpoint
 
-The application-processor half of 404-snf. Orchestrates radar → fatigue → BLE and
-exchanges `PneumaticCommand`/`PneumaticStatus` with the CM33 over the `actuator`
-IPC channel.
+The application-processor half of 404-snf, and where essentially everything runs.
+It reads the IWR6843 over its USB virtual COM port with `tokio-serial`
+(`RADAR_DATA_PORT`, default `/dev/ttyACM1`), runs indicators → ONNX fatigue →
+BLE, and drives the pneumatics: pump on `TIM4_CH2`, vent valve on `TIM5_CH1`,
+both through FR120N MOSFET modules and Linux sysfs PWM.
+
+The CM33's USART6 front-end is reachable over the `radar` IPC channel but is not
+the default source — this binary only pings it once at start-up as a link check.
+
+The CM33 holds no actuator line, so there is no independent interlock behind the
+pneumatics. Fail-safety comes from a normally-open vent valve plus the
+`MAX_INFLATE` ceiling in the control loop — see
+[`hardware/pneumatics/README.md`](../../hardware/pneumatics/README.md).
 
 ## Build
 

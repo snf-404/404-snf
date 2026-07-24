@@ -8,7 +8,7 @@
 # and versions rather than workspace inheritance.
 [package]
 name        = "snf-app"
-description = "404-snf CA35 Linux application: radar + fatigue + BLE orchestration"
+description = "404-snf CA35 Linux application: radar + fatigue + BLE + pneumatics"
 version     = "0.1.0"
 edition     = "2024"
 license     = "Apache-2.0"
@@ -22,6 +22,8 @@ path = "src/main.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Internal crates.
 snf-shared  = { path = "../shared" }
+# `serial` is on by default: the IWR6843 reaches this board over its USB virtual
+# COM port, so the radar is a Linux tty and `RadarStream` reads it directly.
 snf-radar   = { path = "../radar", features = ["vital-signs"] }
 snf-ble     = { path = "../ble" }
 snf-fatigue = { path = "../fatigue" }
@@ -43,10 +45,9 @@ tokio              = { version = "1", features = ["macros", "rt-multi-thread", "
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Pneumatic pump actuation: the TB6612FNG driver is generic over embedded-hal
-# 1.0 traits; its GPIO lines come from `linux-embedded-hal`'s `CdevPin` (GPIO
-# character device) and its PWM from the in-crate `sysfs_pwm` adapter. The pump
-# runs on the CA35 because the DK device tree keeps every PWM-capable timer the
-# CM33 could reach (only TIM2, which backs the Embassy time driver) unavailable.
-embedded-hal       = "1"
-linux-embedded-hal = "0.4"
+# Pneumatic actuation: the FR120N driver is generic over embedded-hal 1.0's
+# `SetDutyCycle`, and its PWM comes from the in-crate `sysfs_pwm` adapter over
+# TIM4/TIM5. Low-side MOSFET switches need no direction or standby lines, so
+# unlike the TB6612FNG this replaced, there are no GPIOs to claim and no
+# `linux-embedded-hal` dependency.
+embedded-hal = "1"
