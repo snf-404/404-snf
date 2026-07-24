@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 type SignalWaveProps = {
   values: number[]
   color: string
@@ -5,6 +7,7 @@ type SignalWaveProps = {
 }
 
 export function SignalWave({ values, color, label }: SignalWaveProps) {
+  const { t } = useTranslation('translation')
   const width = 320
   const height = 54
   const safeValues = values.length > 1 ? values : [0, 0]
@@ -20,13 +23,13 @@ export function SignalWave({ values, color, label }: SignalWaveProps) {
     <div>
       <div className="mb-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.14em] text-white/30">
         <span>{label}</span>
-        <span>Live</span>
+        <span>{t('common.live')}</span>
       </div>
       <svg
         viewBox={`0 0 ${String(width)} ${String(height)}`}
         className="h-14 w-full overflow-visible"
         role="img"
-        aria-label={`${label} 数据趋势`}
+        aria-label={`${label} ${t('chart.dataTrend')}`}
       >
         <path
           d={`M 0 ${String(height / 2)} H ${String(width)}`}

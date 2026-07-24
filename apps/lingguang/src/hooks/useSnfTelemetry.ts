@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { SnfErrorCode } from '@/lib/snfErrors'
 import {
   decodeDeviceStatus,
   decodePointCloud,
@@ -17,6 +18,7 @@ import {
 } from '@/lib/snfProtocol'
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'unsupported'
+type QualityLabel = 'calibrating' | 'interference' | 'excellent' | 'good' | 'low'
 
 const EMPTY_POINTS = new Float32Array(0)
 const HISTORY_LENGTH = 58
@@ -45,7 +47,7 @@ export function useSnfTelemetry(paused: boolean) {
   const [respirationHistory, setRespirationHistory] = useState<number[]>([])
   const [breathingPhase, setBreathingPhase] = useState(0)
   const [clock, setClock] = useState(Date.now())
-  const [error, setError] = useState('')
+  const [error, setError] = useState<SnfErrorCode | ''>('')
 
   const deviceRef = useRef<BluetoothDevice | null>(null)
   const controlRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
@@ -114,7 +116,7 @@ export function useSnfTelemetry(paused: boolean) {
   const openConnection = useCallback(
     async (device: BluetoothDevice) => {
       const server = device.gatt
-      if (server === undefined) throw new Error('设备不支持 GATT')
+      if (server === undefined) throw new Error('gattUnsupported')
       await server.connect()
       device.addEventListener(
         'gattserverdisconnected',
@@ -178,7 +180,7 @@ export function useSnfTelemetry(paused: boolean) {
   const connect = useCallback(async () => {
     if (navigator.bluetooth === undefined) {
       setConnectionState('unsupported')
-      throw new Error('当前环境不支持蓝牙连接')
+      throw new Error('bluetoothUnsupported')
     }
     manualDisconnectRef.current = false
     setConnectionState('connecting')
@@ -206,7 +208,7 @@ export function useSnfTelemetry(paused: boolean) {
   useEffect(() => {
     if (connectionState !== 'connected') return
     void applyStreams(paused).catch(() => {
-      setError('数据流设置失败')
+      setError('streamConfiguration')
     })
   }, [applyStreams, connectionState, paused])
 
@@ -249,15 +251,15 @@ export function useSnfTelemetry(paused: boolean) {
     ((vitals?.statusFlags ?? 0) & SnfStatusFlag.respirationValid) !== 0 && !stale
   const hasSpatialData = points.length > 0
 
-  const qualityLabel = warming
-    ? '校准中'
+  const qualityLabel: QualityLabel = warming
+    ? 'calibrating'
     : motion || vitals?.degraded === true
-      ? '受干扰'
+      ? 'interference'
       : (vitals?.respirationConfidence ?? 0) >= 80
-        ? '优秀'
+        ? 'excellent'
         : (vitals?.respirationConfidence ?? 0) >= 50
-          ? '良好'
-          : '偏低'
+          ? 'good'
+          : 'low'
 
   return useMemo(
     () => ({
@@ -271,7 +273,7 @@ export function useSnfTelemetry(paused: boolean) {
       heartConfidence: vitals?.heartConfidence ?? 0,
       respirationConfidence: vitals?.respirationConfidence ?? 0,
       qualityLabel,
-      motionLabel: motion ? '高' : '低',
+      motionLabel: motion ? 'high' : 'low',
       processorTemperature: status?.processorTemperature ?? null,
       points,
       hasSpatialData,

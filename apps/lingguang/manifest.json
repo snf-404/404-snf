@@ -2,10 +2,10 @@
   "navigationBar": {
     "visible": true,
     "title": "404 SNF 雷达生命监测",
-    "backgroundColor": "#070a0b",
-    "foregroundColor": "#f1f6f4"
+    "backgroundColor": "#f7fbff",
+    "foregroundColor": "#17233d"
   },
-  "orientation": "landscape",
+  "orientation": "portrait",
   "artifact": {
     "title": "404 SNF 雷达生命监测",
     "versionDescription": "支持通过蓝牙连接雷达设备，实时展示非接触式生命体征与空间感知数据。",

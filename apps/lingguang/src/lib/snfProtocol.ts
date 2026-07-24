@@ -89,10 +89,10 @@ function viewBytes(view: DataView, offset = 0): Uint8Array {
 }
 
 export function decodeProtocolInfo(value: DataView): ProtocolInfo {
-  if (value.byteLength !== 24) throw new Error('协议描述长度无效')
+  if (value.byteLength !== 24) throw new Error('invalidProtocolDescriptor')
   const magic = String.fromCharCode(...viewBytes(value).slice(0, 4))
   if (magic !== 'SNF1' || value.getUint8(4) !== PROTOCOL_MAJOR || value.getUint8(6) !== 16) {
-    throw new Error('设备协议版本不兼容')
+    throw new Error('incompatibleProtocol')
   }
   return {
     capabilities: value.getUint32(8, true),

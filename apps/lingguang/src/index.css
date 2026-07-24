@@ -87,7 +87,7 @@
     margin: 0;
     min-width: 320px;
     min-height: 100dvh;
-    background: #070a0b;
+    background: #dce8f8;
     font-family:
       Inter,
       ui-sans-serif,
@@ -97,5 +97,10 @@
       'Segoe UI',
       sans-serif;
     -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input {
+    font: inherit;
   }
 }
