@@ -8,6 +8,7 @@ type PointCloudViewProps = {
   breathingPhase: number
   paused: boolean
   viewResetKey: number
+  hasSpatialData: boolean
 }
 
 function RadarPoints({ points, paused }: Pick<PointCloudViewProps, 'points' | 'paused'>) {
@@ -67,6 +68,7 @@ export function PointCloudView({
   breathingPhase,
   paused,
   viewResetKey,
+  hasSpatialData,
 }: PointCloudViewProps) {
   return (
     <div className="absolute inset-0" data-testid="point-cloud-view" aria-label="三维雷达点云视图">
@@ -79,8 +81,8 @@ export function PointCloudView({
         <fog attach="fog" args={['#080c0d', 4.8, 9]} />
         <gridHelper args={[7, 28, '#263537', '#132022']} position={[0, -1.15, 0]} />
         <group rotation={[-Math.PI / 2, 0, 0]}>
-          <RadarPoints points={points} paused={paused} />
-          <BodyGuide breathingPhase={breathingPhase} />
+          {hasSpatialData && <RadarPoints points={points} paused={paused} />}
+          {hasSpatialData && <BodyGuide breathingPhase={breathingPhase} />}
         </group>
         <OrbitControls
           key={viewResetKey}

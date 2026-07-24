@@ -4,19 +4,27 @@ import { useState } from 'react'
 import './App.css'
 import { PointCloudView } from '@/components/PointCloudView'
 import { SignalWave } from '@/components/SignalWave'
-import { useRadarSimulation } from '@/hooks/useRadarSimulation'
+import { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
 
 function App() {
   const [paused, setPaused] = useState(false)
   const [notice, setNotice] = useState('')
   const [viewResetKey, setViewResetKey] = useState(0)
-  const telemetry = useRadarSimulation(paused)
+  const telemetry = useSnfTelemetry(paused)
 
-  const requestConnection = () => {
-    setNotice('BLE v1 尚未写入硬件，当前继续使用安全的演示数据。')
-    window.setTimeout(() => {
-      setNotice('')
-    }, 3600)
+  const requestConnection = async () => {
+    if (telemetry.connected) {
+      telemetry.disconnect()
+      return
+    }
+    try {
+      await telemetry.connect()
+    } catch (error: unknown) {
+      setNotice(error instanceof Error ? error.message : '设备连接失败')
+      window.setTimeout(() => {
+        setNotice('')
+      }, 3600)
+    }
   }
 
   return (
@@ -40,12 +48,23 @@ function App() {
           <button
             type="button"
             data-testid="connect-device"
-            onClick={requestConnection}
+            aria-label={telemetry.connected ? '断开设备' : '连接设备'}
+            onClick={() => {
+              void requestConnection()
+            }}
             className="group flex min-h-10 items-center gap-2 border border-white/15 bg-white/[0.04] px-3 font-mono text-xs text-white/75 transition hover:border-[#b7ff35]/50 hover:text-[#b7ff35]"
           >
             <Bluetooth size={15} />
-            <span className="hidden sm:inline">连接设备</span>
-            <span className="size-1.5 rounded-full bg-amber-400 shadow-[0_0_10px_#fbbf24]" />
+            <span className="hidden sm:inline">
+              {telemetry.connected ? '断开设备' : '连接设备'}
+            </span>
+            <span
+              className={`size-1.5 rounded-full ${
+                telemetry.connected
+                  ? 'bg-[#b7ff35] shadow-[0_0_10px_#b7ff35]'
+                  : 'bg-amber-400 shadow-[0_0_10px_#fbbf24]'
+              }`}
+            />
           </button>
         </header>
 
@@ -55,17 +74,17 @@ function App() {
               <div>
                 <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em] text-[#b7ff35]">
                   <span className="size-1.5 animate-pulse rounded-full bg-[#b7ff35] shadow-[0_0_12px_#b7ff35]" />
-                  Demo stream / 05 Hz
+                  Telemetry stream / BLE v1
                 </div>
                 <p className="mt-2 max-w-xs text-xs leading-relaxed text-white/45">
-                  合成毫米波点云 · 胸廓位移已放大显示
+                  生命体征与空间感知数据
                 </p>
               </div>
               <div className="border border-white/10 bg-black/30 px-3 py-2 text-right backdrop-blur">
                 <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/35">
                   Target
                 </p>
-                <p className="mt-1 font-mono text-xs text-white/80">ID 0001 · 1.82 m</p>
+                <p className="mt-1 font-mono text-xs text-white/80">ID {telemetry.subjectLabel}</p>
               </div>
             </div>
 
@@ -74,6 +93,7 @@ function App() {
               breathingPhase={telemetry.breathingPhase}
               paused={paused}
               viewResetKey={viewResetKey}
+              hasSpatialData={telemetry.hasSpatialData}
             />
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-[#070a0b] via-[#070a0b]/75 to-transparent p-4 pt-16 sm:p-5 sm:pt-20">
@@ -102,18 +122,28 @@ function App() {
               <Metric
                 icon={<HeartPulse size={18} />}
                 label="心率"
-                value={telemetry.heartRate.toFixed(0)}
+                value={telemetry.heartRate === null ? '--' : telemetry.heartRate.toFixed(0)}
                 unit="BPM"
                 tone="lime"
-                footnote="置信度 94%"
+                footnote={
+                  telemetry.heartRate === null
+                    ? '暂无有效数据'
+                    : `置信度 ${String(telemetry.heartConfidence)}%`
+                }
               />
               <Metric
                 icon={<Wind size={18} />}
                 label="呼吸"
-                value={telemetry.respirationRate.toFixed(1)}
+                value={
+                  telemetry.respirationRate === null ? '--' : telemetry.respirationRate.toFixed(1)
+                }
                 unit="RPM"
                 tone="cyan"
-                footnote="置信度 91%"
+                footnote={
+                  telemetry.respirationRate === null
+                    ? '等待稳定数据'
+                    : `置信度 ${String(telemetry.respirationConfidence)}%`
+                }
               />
             </div>
 
@@ -128,24 +158,31 @@ function App() {
                 <Activity size={17} className="text-[#b7ff35]" />
               </div>
               <div className="mt-5 space-y-5">
-                <SignalWave values={telemetry.heartWave} color="#b7ff35" label="ECG proxy" />
+                <SignalWave values={telemetry.heartWave} color="#b7ff35" label="Heart trend" />
                 <SignalWave values={telemetry.breathWave} color="#45d9ff" label="Respiration" />
               </div>
             </div>
 
             <div className="grid grid-cols-3 border border-white/10 bg-white/[0.025]">
-              <StatusCell label="信号质量" value="优秀" accent />
-              <StatusCell label="运动干扰" value="低" />
-              <StatusCell label="雷达温度" value="42°C" />
+              <StatusCell label="信号质量" value={telemetry.qualityLabel} accent />
+              <StatusCell label="运动干扰" value={telemetry.motionLabel} />
+              <StatusCell
+                label="设备温度"
+                value={
+                  telemetry.processorTemperature === null
+                    ? '--'
+                    : `${telemetry.processorTemperature.toFixed(1)}°C`
+                }
+              />
             </div>
 
             <div className="mt-auto border border-amber-300/20 bg-amber-300/[0.05] p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-1 size-2 shrink-0 rounded-full bg-amber-300 shadow-[0_0_12px_#fcd34d]" />
                 <div>
-                  <p className="text-xs font-medium text-amber-100">演示数据</p>
+                  <p className="text-xs font-medium text-amber-100">测量说明</p>
                   <p className="mt-1 text-[11px] leading-relaxed text-amber-100/50">
-                    硬件端 BLE v1 尚未实现。当前点云、姿态轮廓和生命体征均为模拟，不用于医疗判断。
+                    环境变化与明显运动会影响测量质量，生命体征结果不用于医疗判断。
                   </p>
                 </div>
               </div>
@@ -157,10 +194,11 @@ function App() {
               onClick={() => {
                 setPaused((value) => !value)
               }}
+              disabled={!telemetry.connected}
               className="flex min-h-12 w-full items-center justify-center gap-2 bg-[#b7ff35] px-4 font-mono text-xs font-semibold uppercase tracking-[0.14em] text-[#111704] transition hover:bg-[#ceff78]"
             >
               <CirclePause size={16} />
-              {paused ? '继续演示数据流' : '暂停数据流'}
+              {paused ? '继续数据流' : '暂停数据流'}
             </button>
           </aside>
         </section>

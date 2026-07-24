@@ -26,7 +26,7 @@ export function SignalWave({ values, color, label }: SignalWaveProps) {
         viewBox={`0 0 ${String(width)} ${String(height)}`}
         className="h-14 w-full overflow-visible"
         role="img"
-        aria-label={`${label} 模拟波形`}
+        aria-label={`${label} 数据趋势`}
       >
         <path
           d={`M 0 ${String(height / 2)} H ${String(width)}`}
