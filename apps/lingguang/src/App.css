@@ -121,6 +121,32 @@ body,
   backdrop-filter: blur(18px);
 }
 
+.ai-insight-spin {
+  animation: ai-insight-spin 1s linear infinite;
+}
+
+.ai-insight-caret {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  margin-left: 3px;
+  background: #5278e8;
+  vertical-align: -2px;
+  animation: ai-insight-caret 0.8s steps(1) infinite;
+}
+
+@keyframes ai-insight-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-insight-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

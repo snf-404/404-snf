@@ -10,6 +10,7 @@ import type { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
+import { AiInsightCard } from './AiInsightCard'
 import { DeskMatSVG, type MatState } from './DeskMatSVG'
 import { SensingDetailPage } from './SensingDetailPage'
 
@@ -387,7 +388,8 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
           stroke="rgba(82,120,232,0.08)"
           strokeWidth="1.2"
           fill="none"
-          animate={{ rx: [58, 74, 58], ry: [19, 25, 19], opacity: [0.08, 0, 0.08] }}
+          style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+          animate={{ scale: [1, 1.28, 1], opacity: [0.08, 0, 0.08] }}
           transition={{ duration: 3.5, repeat: Infinity }}
         />
         <path
@@ -424,7 +426,8 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
           stroke="rgba(82,120,232,0.08)"
           strokeWidth="1.2"
           fill="none"
-          animate={{ rx: [58, 74, 58], ry: [19, 25, 19], opacity: [0.08, 0, 0.08] }}
+          style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+          animate={{ scale: [1, 1.28, 1], opacity: [0.08, 0, 0.08] }}
           transition={{ duration: 3.5, repeat: Infinity, delay: 1.3 }}
         />
         <path
@@ -454,7 +457,8 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
             r={1.5}
             fill="#A8BFEF"
             opacity={0}
-            animate={{ opacity: [0, 0.55, 0], r: [1.5, 2.2, 1.5] }}
+            style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+            animate={{ opacity: [0, 0.55, 0], scale: [1, 1.46, 1] }}
             transition={{ duration: 3 + d * 0.3, repeat: Infinity, delay: d, ease: 'easeInOut' }}
           />
         ))}
@@ -884,6 +888,19 @@ function WorkPage({
         </p>
       </div>
       <JointVisualCard onShowSensing={onShowSensing} />
+      <AiInsightCard
+        snapshot={{
+          connected: telemetry.connected,
+          heartRate: telemetry.heartRate,
+          respirationRate: telemetry.respirationRate,
+          heartConfidence: telemetry.heartConfidence,
+          respirationConfidence: telemetry.respirationConfidence,
+          qualityLabel: telemetry.qualityLabel,
+          motionLabel: telemetry.motionLabel,
+          hasSpatialData: telemetry.hasSpatialData,
+          processorTemperature: telemetry.processorTemperature,
+        }}
+      />
       <StateSummaryCard />
       <CoreDashboard telemetry={telemetry} />
       <MatStatusCard />

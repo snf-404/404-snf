@@ -34,3 +34,5 @@ dist/
 .nuxt/
 .output/
 *.tsbuildinfo
+.env*
+!.env.example

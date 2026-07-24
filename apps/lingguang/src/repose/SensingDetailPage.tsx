@@ -174,7 +174,8 @@ function PresenceCard() {
               r={1.2}
               fill="#A8BFEF"
               opacity={0}
-              animate={{ opacity: [0, 0.5, 0], r: [1.2, 1.8, 1.2] }}
+              style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+              animate={{ opacity: [0, 0.5, 0], scale: [1, 1.5, 1] }}
               transition={{
                 duration: 2.8 + d * 0.2,
                 repeat: Infinity,
