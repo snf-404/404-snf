@@ -3,5 +3,43 @@
   "eyebrow": "Contactless fatigue monitoring",
   "title": "Connect your device and inspect live signals",
   "description": "Connect to a 404 SNF device over Web Bluetooth and view fatigue indicators in your browser.",
-  "connect": "Connect device"
+  "connect": "Connect device",
+  "disconnect": "Disconnect",
+  "connecting": "Connecting…",
+  "empty": "Connect a device to see live telemetry.",
+  "unavailable": "—",
+  "unsupported": {
+    "title": "Web Bluetooth is not available",
+    "body": "This browser can't access Bluetooth. Use Chrome or Edge on desktop or Android — iOS Safari is not supported."
+  },
+  "state": {
+    "idle": "Ready",
+    "connecting": "Connecting",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "error": "Error"
+  },
+  "quality": {
+    "live": "Live",
+    "stale": "Stale",
+    "lost": "Lost"
+  },
+  "vitals": {
+    "title": "Vitals",
+    "heartRate": "Heart rate",
+    "respiration": "Respiration",
+    "unit": "bpm"
+  },
+  "fatigue": {
+    "title": "Fatigue",
+    "level": "Level",
+    "confidence": "Confidence"
+  },
+  "status": {
+    "title": "Device status",
+    "uptime": "Uptime",
+    "battery": "Battery",
+    "temperature": "Temperature",
+    "dropped": "Dropped frames"
+  }
 }

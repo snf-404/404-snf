@@ -2,10 +2,13 @@
 
 # 404-snf on STM32MP257: CA35 Linux application + CM33 real-time firmware.
 #
-# The CA35 owns the IWR6843 mmWave radar (serial), the BLE link (BlueZ), and the
-# ONNX fatigue pipeline. The CM33 owns the pneumatic actuation loop (pump PWM,
-# solenoid valves, pressure sensor). They exchange typed messages over one IPC
-# channel. There is intentionally NO OP-TEE endpoint and NO HMI in this build.
+# The CA35 owns the IWR6843 mmWave radar (serial), the BLE link (BlueZ), the ONNX
+# fatigue pipeline, and the pneumatic actuation loop (pump PWM + pressure ADC) —
+# no PWM-capable timer the CM33 could reach is free on the DK, so actuation runs
+# on Linux. The CM33 is the independent safety supervisor: it holds a deadman on
+# the CA35 heartbeat (over the IPC channel below) and cuts the pump power rail via
+# one GPIO if Linux stops pinging. They exchange typed messages over one IPC
+# channel. There is intentionally NO OP-TEE endpoint and NO HMI.
 #
 # Modeled on consortium/examples/melt-pot/stm32mp25 — see that example for the
 # full set of knobs. Endpoint compile targets come from the embedded chip
@@ -61,15 +64,10 @@ secure   = false
 pin.tx   = "PA9"
 pin.rx   = "PA10"
 
-# Pressure sensor (I2C gauge, e.g. Honeywell MPRLS) on the CM33 pneumatic loop.
-[peripheral.i2c1]
-owner   = "cm33"
-secure  = false
-pin.sda = "PB0"
-pin.scl = "PB1"
-
-# Pump PWM (single timer channel -> driver module) driven by the CM33.
-[peripheral.tim3]
-owner   = "cm33"
-secure  = false
-pin.ch1 = "PA6"
+# CM33 safety-interlock output: one GPIO driving the load-switch on the pump's
+# motor rail. High = rail energized, Low = rail cut (fail-safe). The generated
+# bring-up hands the CM33 a `gpioh` port handle; the firmware picks the pin. The
+# specific pin is a placeholder pending board design.
+[peripheral.gpioh]
+owner  = "cm33"
+secure = false

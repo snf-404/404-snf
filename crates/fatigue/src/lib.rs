@@ -58,6 +58,7 @@ impl std::error::Error for FatigueError {}
 ///
 /// Under the `ort` feature this owns a `consortium-ort` session; otherwise it is
 /// an empty stub.
+#[derive(Debug)]
 pub struct FatigueModel {
     #[cfg(feature = "ort")]
     _session: (), // placeholder for the consortium-ort/ort session handle
@@ -66,8 +67,12 @@ pub struct FatigueModel {
 impl FatigueModel {
     /// Load an ONNX model from `path`.
     ///
-    /// Stub: does not read the file yet.
-    pub fn load(_path: &str) -> Result<Self, FatigueError> {
+    /// Validates that the file exists and is readable so a missing model fails
+    /// at start-up rather than silently producing verdicts. The `ort` feature
+    /// path additionally builds a `consortium-ort` session from the bytes; the
+    /// default build stops after the existence check (no ONNX Runtime present).
+    pub fn load(path: &str) -> Result<Self, FatigueError> {
+        std::fs::metadata(path).map_err(|e| FatigueError::Load(format!("{path}: {e}")))?;
         Ok(Self {
             #[cfg(feature = "ort")]
             _session: (),
@@ -83,5 +88,27 @@ impl FatigueModel {
             level: 0,
             confidence: 0.0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_rejects_a_missing_model_file() {
+        let err = FatigueModel::load("/nonexistent/snf/fatigue.onnx").unwrap_err();
+        assert!(matches!(err, FatigueError::Load(_)));
+    }
+
+    #[test]
+    fn load_accepts_an_existing_file() {
+        // Any readable path stands in for a model in the stub build; this crate's
+        // own manifest is guaranteed to exist at test time.
+        let existing = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        let model = FatigueModel::load(existing).expect("manifest exists");
+        // Stub inference is defined and total.
+        let verdict = model.infer(&FatigueFeatures::default()).unwrap();
+        assert_eq!(verdict.level, 0);
     }
 }

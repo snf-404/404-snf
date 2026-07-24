@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Continuous integration for 404-snf.
+#
+# The Rust job runs on Linux specifically so the BlueZ backend
+# (`crates/ble/src/bluez.rs`, gated to `target_os = "linux"` behind `bluer`)
+# is actually compiled — it cannot build on a macOS/Windows dev host. The
+# workspace has path dependencies on a sibling `../consortium` checkout
+# (see the root `Cargo.toml`), so consortium is checked out alongside this repo
+# to make those relative paths resolve.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (workspace + BlueZ backend)
+    runs-on: ubuntu-latest
+    steps:
+      # Check out into a named directory so `../consortium` (a sibling of the
+      # repo root, per the workspace path deps) resolves next to it.
+      - name: Checkout 404-snf
+        uses: actions/checkout@v4
+        with:
+          path: 404-snf
+
+      - name: Checkout consortium (sibling path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: consortium-rs/consortium
+          path: consortium
+
+      # `bluer` links against system D-Bus; without these the BlueZ backend
+      # (and thus `snf-ble`) fails to build on Linux.
+      - name: Install BlueZ / D-Bus build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libdbus-1-dev pkg-config
+
+      - name: Install Rust toolchain
+        run: rustup component add rustfmt clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 404-snf
+
+      # Scope the format check to this repo's crates: `--all` would also reach
+      # into the `../consortium` path dependencies, which are formatted under
+      # their own config.
+      - name: Format
+        working-directory: 404-snf
+        run: >
+          cargo fmt --check
+          -p snf-shared -p snf-radar -p snf-ble -p snf-fatigue -p snf-bridge
+
+      # Clippy over the whole workspace and all targets (incl. tests). On Linux
+      # this compiles `bluer` and `bluez.rs`, the point of running CI here.
+      - name: Clippy
+        working-directory: 404-snf
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: 404-snf
+        run: cargo test --workspace
+
+  web:
+    name: Web (format, lint, typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The JS workspace is driven by Vite+ (`vp`), which manages Node and pnpm.
+      - name: Install Vite+
+        run: npm install -g vite-plus
+
+      - name: Install dependencies
+        run: vp install
+
+      # `vp check` runs format, lint, and type checks across the workspace.
+      - name: Check web app
+        run: vp check

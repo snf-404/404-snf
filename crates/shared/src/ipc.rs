@@ -9,28 +9,29 @@
 use consortium_ipc::IpcSafe;
 use serde::{Deserialize, Serialize};
 
-/// Command sent from the CA35 application to the CM33 pneumatic controller,
-/// derived from the current fatigue verdict.
+/// Liveness heartbeat sent from the CA35 application to the CM33 safety
+/// supervisor, once per control tick.
 ///
-/// Placeholder shape — a real protocol will likely carry per-zone set-points and
-/// a richer mode enum.
+/// The CM33 treats the *arrival* of these messages as the deadman ping: if none
+/// lands within its timeout, it assumes Linux has hung and cuts the pump rail.
+/// `pump_enable` additionally lets the CA35 gate the rail explicitly (e.g. to
+/// power the pneumatics down cleanly).
 #[derive(Clone, Copy, Debug, IpcSafe, Deserialize, Serialize)]
 pub struct PneumaticCommand {
-    /// Target bladder pressure in kilopascals.
-    pub target_pressure_kpa: u16,
-    /// Bitmask selecting which actuator zones this command applies to.
-    pub actuator_mask: u8,
-    /// Control mode (0 = idle, 1 = hold, 2 = pulse, ... — to be defined).
-    pub mode: u8,
+    /// Monotonic heartbeat counter; wraps at `u32::MAX`.
+    pub seq: u32,
+    /// Whether the CA35 wants the pump power rail energized.
+    pub pump_enable: bool,
 }
 
-/// Status reported from the CM33 pneumatic controller back to the CA35.
+/// Safety state reported from the CM33 supervisor back to the CA35.
 #[derive(Clone, Copy, Debug, IpcSafe, Deserialize, Serialize)]
 pub struct PneumaticStatus {
-    /// Measured bladder pressure in kilopascals.
-    pub pressure_kpa: u16,
-    /// Whether the pump is currently energized.
-    pub pump_on: bool,
+    /// Whether the pump power rail is currently energized by the interlock.
+    pub rail_enabled: bool,
+    /// True once the deadman has tripped (no heartbeat within the timeout);
+    /// cleared automatically when heartbeats resume.
+    pub tripped: bool,
     /// Monotonic sequence counter; wraps at `u32::MAX`.
     pub seq: u32,
 }

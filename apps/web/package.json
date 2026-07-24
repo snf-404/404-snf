@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.118",
+    "@types/web-bluetooth": "^0.0.21",
     "typescript": "^6.0.3",
     "vue-tsc": "^3.3.7"
   }

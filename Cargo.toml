@@ -19,7 +19,7 @@
 # `crates/mcu`) are excluded: each `include!`s a `src/consortium.gen.rs`
 # emitted by the `csti build` pipeline and cross-compiles into its own
 # per-crate `target/`, exactly as the consortium melt-pot example does.
-members = ["crates/shared", "crates/radar", "crates/ble", "crates/fatigue"]
+members = ["crates/shared", "crates/radar", "crates/ble", "crates/fatigue", "crates/bridge"]
 exclude = ["crates/app", "crates/mcu"]
 resolver = "2"
 
@@ -61,6 +61,7 @@ snf-shared = { path = "crates/shared" }
 snf-radar = { path = "crates/radar" }
 snf-ble = { path = "crates/ble" }
 snf-fatigue = { path = "crates/fatigue" }
+snf-bridge = { path = "crates/bridge" }
 
 [profile.dev]
 panic = "abort"

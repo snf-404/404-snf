@@ -22,9 +22,10 @@ path = "src/main.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Internal crates.
 snf-shared  = { path = "../shared" }
-snf-radar   = { path = "../radar" }
+snf-radar   = { path = "../radar", features = ["vital-signs"] }
 snf-ble     = { path = "../ble" }
 snf-fatigue = { path = "../fatigue" }
+snf-bridge  = { path = "../bridge" }
 
 # Named directly by the generated `consortium.gen.rs`.
 consortium-codec = { path = "../../../consortium/crates/consortium-codec", features = ["postcard"] }
@@ -38,6 +39,14 @@ consortium-log = { path = "../../../consortium/crates/consortium-log", features 
 
 # Application runtime.
 serde              = { version = "1", features = ["derive"] }
-tokio              = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio              = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Pneumatic pump actuation: the TB6612FNG driver is generic over embedded-hal
+# 1.0 traits; its GPIO lines come from `linux-embedded-hal`'s `CdevPin` (GPIO
+# character device) and its PWM from the in-crate `sysfs_pwm` adapter. The pump
+# runs on the CA35 because the DK device tree keeps every PWM-capable timer the
+# CM33 could reach (only TIM2, which backs the Embassy time driver) unavailable.
+embedded-hal       = "1"
+linux-embedded-hal = "0.4"

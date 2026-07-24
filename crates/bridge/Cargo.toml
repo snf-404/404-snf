@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name              = "snf-bridge"
+description       = "Pure conversion + control logic wiring snf-radar indicators and snf-fatigue verdicts to the snf-ble telemetry protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# The radar indicators are the source of vitals/activity; `vital-signs` exposes
+# the heart/respiration estimates this crate maps onto the BLE Vitals payload.
+snf-radar   = { workspace = true, features = ["vital-signs"] }
+snf-fatigue = { workspace = true }
+# Only the wire types (`snf_ble::protocol`) are used — no BlueZ, so this crate is
+# host-checkable on any platform.
+snf-ble     = { workspace = true }
+
+[lints]
+workspace = true

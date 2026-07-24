@@ -27,7 +27,7 @@ consortium-ipc-doorbell-ipcc = { path = "../../../consortium/crates/consortium-i
 consortium-ipc-transport-memory = { path = "../../../consortium/crates/consortium-ipc-transport-memory", default-features = false, features = ["defmt", "stm32mp25x"] }
 consortium-shared-memory = { path = "../../../consortium/crates/consortium-shared-memory" }
 consortium-runtime-mcu = { path = "../../../consortium/crates/consortium-runtime-mcu", default-features = false, features = ["defmt", "macros"] }
-consortium-hal-stm32mp2 = { path = "../../../consortium/crates/consortium-hal-stm32mp2", default-features = false, features = ["defmt", "rt", "time-driver-gp-tim"] }
+consortium-hal-stm32mp2 = { path = "../../../consortium/crates/consortium-hal-stm32mp2", default-features = false, features = ["defmt", "rt", "gpio", "time-driver-gp-tim"] }
 consortium-dbg = { path = "../../../consortium/crates/consortium-dbg", default-features = false, features = ["logger"] }
 
 # Firmware runtime.

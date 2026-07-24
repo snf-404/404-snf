@@ -142,6 +142,13 @@ pub enum VitalStatus {
 }
 
 /// Raw and stabilized form of a heart or respiration rate.
+///
+/// `range_bin` and `breathing_deviation` are subject-level values carried
+/// straight from the frame's vendor vital record (both the heart and the
+/// respiration estimate of a given subject report the same pair). They are
+/// `None` only when no vendor reading backs the estimate (`NoSubject`); an
+/// out-of-range rate still yields the record, so they survive
+/// `InvalidVendorValue`.
 #[cfg(feature = "vital-signs")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VitalRateEstimate {
@@ -152,6 +159,10 @@ pub struct VitalRateEstimate {
     pub stabilized_bpm: Option<f32>,
     pub confidence: f32,
     pub status: VitalStatus,
+    /// TI vital result range bin for the tracked subject.
+    pub range_bin: Option<u16>,
+    /// Vendor breathing-deviation value from the vital record.
+    pub breathing_deviation: Option<f32>,
 }
 
 #[cfg(feature = "vital-signs")]
@@ -163,6 +174,8 @@ impl VitalRateEstimate {
             stabilized_bpm: None,
             confidence: 0.0,
             status,
+            range_bin: None,
+            breathing_deviation: None,
         }
     }
 }
@@ -469,6 +482,8 @@ fn rate_estimate(
             stabilized_bpm: None,
             confidence: 0.0,
             status: VitalStatus::InvalidVendorValue,
+            range_bin: Some(reading.range_bin),
+            breathing_deviation: Some(reading.breathing_deviation),
         };
     }
 
@@ -496,6 +511,8 @@ fn rate_estimate(
         stabilized_bpm,
         confidence,
         status,
+        range_bin: Some(reading.range_bin),
+        breathing_deviation: Some(reading.breathing_deviation),
     }
 }
 
@@ -605,6 +622,9 @@ mod tests {
         let heart = ready.heart_rate.unwrap();
         assert_eq!(heart.status, VitalStatus::Valid);
         assert_eq!(heart.stabilized_bpm, Some(73.0));
+        // Subject-level vendor fields ride straight through from the record.
+        assert_eq!(heart.range_bin, Some(10));
+        assert_eq!(heart.breathing_deviation, Some(0.1));
     }
 
     #[cfg(feature = "vital-signs")]

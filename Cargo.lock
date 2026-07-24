@@ -112,6 +112,18 @@ dependencies = [
 [[package]]
 name = "consortium-log"
 version = "0.1.0"
+dependencies = [
+ "consortium-log-macros",
+]
+
+[[package]]
+name = "consortium-log-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "consortium-macros-helpers"
@@ -778,9 +790,17 @@ version = "0.1.0"
 dependencies = [
  "bluer",
  "futures",
- "serde",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "snf-bridge"
+version = "0.1.0"
+dependencies = [
+ "snf-ble",
+ "snf-fatigue",
+ "snf-radar",
 ]
 
 [[package]]

@@ -17,9 +17,10 @@ bluez   = ["dep:bluer"]
 trouble = []
 
 [dependencies]
-tokio   = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+# `sync` provides the broadcast/mpsc channels and Mutex the BlueZ backend fans
+# notifications and control requests through; `time` backs the header timestamp.
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 futures = "0.3"
-serde   = { version = "1", features = ["derive"] }
 uuid    = "1"
 
 # `bluer` (BlueZ D-Bus bindings) is Linux-only. Target-gating it keeps
