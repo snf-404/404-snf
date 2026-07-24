@@ -24,6 +24,5 @@ service/.service-integration-results
 *.sln
 *.sw?
 lingguang-usage.json
-manifest.json
 src/index.sandpack.css
 /deploy.sh
