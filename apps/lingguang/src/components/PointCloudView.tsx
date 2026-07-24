@@ -1,8 +1,9 @@
 import { OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
 import * as THREE from 'three'
+
+import { useTranslation } from '@/i18n'
 
 type PointCloudViewProps = {
   points: Float32Array

@@ -1,7 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -11,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
+import { useTranslation } from '@/i18n'
 import type { Locale } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 import { SNF_ERROR_TRANSLATIONS } from '@/lib/snfErrors'
@@ -146,7 +146,7 @@ export function DeviceTab({
         <Tabs
           value={locale}
           onValueChange={(value) => {
-            if (value === 'zh-CN' || value === 'en-US') void i18n.changeLanguage(value)
+            if (value === 'zh-CN' || value === 'en-US') i18n.changeLanguage(value)
           }}
         >
           <TabsList

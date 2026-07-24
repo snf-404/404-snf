@@ -1,10 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import './App.css'
 import { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
-import '@/i18n'
+import { I18nProvider, useTranslation } from '@/i18n'
 import { getSnfErrorTranslation } from '@/lib/snfErrors'
 import { BottomNav, type Tab } from '@/repose/BottomNav'
 import { DeviceTab } from '@/repose/DeviceTab'
@@ -98,7 +97,11 @@ function AppContent() {
 }
 
 function App() {
-  return <AppContent />
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
+  )
 }
 
 export default App

@@ -1,6 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -8,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
+import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
 import { DeskMatSVG, type MatState } from './DeskMatSVG'

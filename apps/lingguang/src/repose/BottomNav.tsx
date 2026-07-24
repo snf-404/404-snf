@@ -1,7 +1,7 @@
 import { Activity, Bluetooth, History, type LucideIcon } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
 export type Tab = 'status' | 'record' | 'device'

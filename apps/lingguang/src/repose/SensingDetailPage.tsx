@@ -1,11 +1,11 @@
 import { motion } from 'motion/react'
-import { useTranslation } from 'react-i18next'
 
 import { PointCloudView } from '@/components/PointCloudView'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import type { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
+import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
 interface SensingDetailPageProps {

@@ -1,8 +1,8 @@
 import { motion } from 'motion/react'
-import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
 type RecordItem = {
