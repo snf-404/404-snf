@@ -30,6 +30,7 @@ struct csi_sensing {
     uint32_t stage_frames;
     uint32_t accepted_frames;
     uint32_t rejected_frames;
+    int64_t last_timestamp_us;
     int8_t rssi;
 
     running_stat_t carrier_stats[CSI_SENSING_SUBCARRIERS];
@@ -396,6 +397,8 @@ static void fill_result(const csi_sensing_t *sensing, csi_sensing_result_t *resu
     result->motion = sensing->motion;
     result->motion_score = sensing->motion_score;
     result->motion_threshold = sensing->motion_threshold;
+    result->breathing_suppressed =
+        sensing->motion || sensing->last_timestamp_us < sensing->motion_hold_until_us;
     result->breathing_valid = sensing->breathing_valid;
     result->breathing_bpm = sensing->breathing_bpm;
     result->breathing_confidence = sensing->breathing_confidence;
@@ -442,6 +445,7 @@ bool csi_sensing_push(csi_sensing_t *sensing,
         return false;
     }
 
+    sensing->last_timestamp_us = timestamp_us;
     ++sensing->accepted_frames;
     sensing->rssi = rssi;
     if (sensing->stage == CSI_SENSING_CALIBRATING_SUBCARRIERS) {

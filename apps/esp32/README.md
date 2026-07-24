@@ -3,8 +3,18 @@
 Pure on-device Wi-Fi CSI sensing for one ESP32-C5. The board joins a 2.4 GHz
 network and pings its DHCP default gateway at 100 Hz. ICMP Echo Replies from the
 router provide a steady CSI stream; motion and breathing results are computed on
-the C5 and printed over serial. There is no second ESP32, MQTT, backend, or
-frontend.
+the C5, printed over serial, and published over the repository's BLE telemetry
+protocol. There is no second ESP32, MQTT, or backend.
+
+## BLE telemetry
+
+The board advertises the `404-SNF` local name and the service defined in the root
+`PROTOCOL.md`. This implementation exposes Protocol Info, Stream Control, Device
+Status, and Vitals. Its capability mask contains only `VITALS`: respiration and
+motion quality are available, while heart rate, fatigue, pose, and point cloud
+are explicitly unavailable. The default development configuration does not
+require pairing; enable `Require encrypted BLE telemetry connections` only with
+an appropriate production pairing policy.
 
 ## Signal pipeline
 

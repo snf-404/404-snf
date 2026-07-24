@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "lwip/ip_addr.h"
 #include "nvs_flash.h"
+#include "snf_ble.h"
 #include "ping/ping_sock.h"
 #include "sdkconfig.h"
 
@@ -229,6 +230,19 @@ static void sensing_task(void *arg)
     while (xQueueReceive(s_csi_queue, &frame, portMAX_DELAY) == pdTRUE) {
         csi_sensing_push(sensing, frame.iq, sizeof(frame.iq), frame.timestamp_us,
                          frame.rssi, &result);
+        snf_ble_sample_t ble_sample = {
+            .warming_up = result.stage != CSI_SENSING_READY,
+            .motion = result.motion,
+            .motion_contaminated = result.breathing_suppressed,
+            .respiration_valid = result.breathing_valid,
+            .respiration_bpm = result.breathing_bpm,
+            .respiration_confidence = result.breathing_confidence,
+            .motion_score = result.motion_score,
+            .motion_threshold = result.motion_threshold,
+            .csi_drops = s_callback_drops,
+            .ping_timeouts = s_ping_timeouts,
+        };
+        snf_ble_update(&ble_sample);
         if (result.stage != last_stage) {
             last_stage = result.stage;
             if (result.stage == CSI_SENSING_READY) {
@@ -281,6 +295,7 @@ void app_main(void)
         nvs_result = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvs_result);
+    ESP_ERROR_CHECK(snf_ble_init());
     ESP_ERROR_CHECK(wifi_connect());
 
     s_csi_queue = xQueueCreate(CSI_QUEUE_DEPTH, sizeof(csi_frame_t));

@@ -1,11 +1,15 @@
 # 404-SNF BLE Telemetry Protocol v1
 
-本文件定义 CA35 通过 BLE 向手机或 Web Bluetooth 客户端发布毫米波雷达遥测数据的协议。
+本文件定义 404-SNF 设备通过 BLE 向手机或 Web Bluetooth 客户端发布非接触感知遥测数据的协议。
 协议优先保证心率、呼吸率和设备状态的及时性；人体姿态和点云属于可选高带宽流。
 
-> 状态：设计完成，尚未实现。当前 `snf-ble` 仍是 BlueZ GATT 脚手架，
-> `apps/web/app/utils/protocol.ts` 中的 `5f04/5f05` UUID 和 9 字节疲劳包是
-> legacy placeholder，不属于本协议 v1。
+> 状态：ESP32-C5 已实现 Protocol Info、Control、Status 和 Vitals；`apps/lingguang`
+> 已实现 Web Bluetooth、分片重组与对应数据消费。Rust `snf-ble` 已实现协议编解码、
+> 分片和 BlueZ GATT，CA35 应用当前发布 Status、Vitals 和 Fatigue。
+
+ESP32-C5 只声明 `VITALS` capability：呼吸率有效，心率为 unavailable，动作通过
+`MOTION_CONTAMINATED` 和 `activity_confidence` 表达。它不声明或发送 Fatigue、Pose、
+Point Cloud；客户端必须继续按 capability bits 工作，以便与 Rust 雷达实现共用。
 
 ## 1. 目标与非目标
 

@@ -28,4 +28,12 @@ menu "ESP32-C5 CSI sensing"
         range 16 512
         default 64
 
+    config CSI_BLE_REQUIRE_ENCRYPTION
+        bool "Require encrypted BLE telemetry connections"
+        default n
+        help
+            Enable for production deployments after a physical pairing policy is
+            available. Development builds leave this disabled for Web Bluetooth
+            interoperability.
+
 endmenu

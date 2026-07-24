@@ -24,6 +24,7 @@ typedef struct {
     bool motion;
     float motion_score;
     float motion_threshold;
+    bool breathing_suppressed;
     bool breathing_valid;
     float breathing_bpm;
     float breathing_confidence;
