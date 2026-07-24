@@ -20,5 +20,7 @@ peerDependencyRules:
 packages:
   - apps/*
 allowBuilds:
+  canvas: set this to true or false
   esbuild: true
+  msgpackr-extract: set this to true or false
   vue-demi: true
