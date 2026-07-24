@@ -2,7 +2,8 @@
 #
 # Convenience tasks for 404-snf. `just` (https://github.com/casey/just) is the
 # runner; `csti` is the consortium build CLI (from ../consortium/crates/
-# consortium-cli); `vp` is Vite+ for the JavaScript workspace.
+# consortium-cli); `vp` provides repository-level JavaScript tooling while the
+# Lingguang app keeps its official npm-managed toolchain.
 
 # List available recipes.
 default:
@@ -31,19 +32,31 @@ test:
 build:
     csti build --manifest Consortium.toml
 
-# ── JavaScript workspace (Vite+) ─────────────────────────────────────────────
+# ── JavaScript tooling + Lingguang app ───────────────────────────────────────
 
-# Install the web application's JS dependencies.
+# Install repository-level Vite+ tooling.
 js-install:
     pnpm install
 
-# Build the Nuxt web application.
-js-build:
-    pnpm --filter @snf/web build
+# Run repository-level Vite+ checks.
+js-check:
+    vp check
 
-# Run the frontend dev server (apps/web).
-js-dev:
-    pnpm --filter @snf/web dev
+# Install the Lingguang app from its official npm lockfile.
+lingguang-install:
+    vp run -w install:lingguang
+
+# Run the Lingguang scaffold's complete quality gate.
+lingguang-check:
+    vp run -w check:lingguang
+
+# Build the Lingguang flash app.
+lingguang-build:
+    vp run -w build:lingguang
+
+# Run the Lingguang development server.
+lingguang-dev:
+    vp run -w dev:lingguang
 
 # ── Linux dev container (Apple `container` on macOS) ──────────────────────────
 # The Rust host checks above run natively on macOS (radar/ble host libs). But the

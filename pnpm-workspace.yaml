@@ -1,26 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Vite+ (vp) sits on top of pnpm workspaces. The `catalog:` entries pin the
-# Vite+ toolchain packages; `packages` lists the workspace members.
-#
-# `apps/web` contains the repository's Node.js application.
+# Vite+ owns repository-level tooling. The Lingguang app intentionally remains
+# outside this pnpm workspace: its official package-lock.json and npm toolchain
+# are part of the platform build contract.
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@latest
-  vitest: npm:@voidzero-dev/vite-plus-test@latest
   vite-plus: latest
-overrides:
-  vite: 'catalog:'
-  vitest: 'catalog:'
-peerDependencyRules:
-  allowAny:
-    - vite
-    - vitest
-  allowedVersions:
-    vite: '*'
-    vitest: '*'
-packages:
-  - apps/*
 allowBuilds:
-  canvas: set this to true or false
+  canvas: false
   esbuild: true
-  msgpackr-extract: set this to true or false
   vue-demi: true

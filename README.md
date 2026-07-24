@@ -6,8 +6,8 @@ to validate consortium's async inter-processor primitives in practice).
 
 The device senses a person with a **TI IWR6843** mmWave radar, classifies
 **fatigue level** with an **ONNX** model, drives **pneumatic actuators** through
-the **CM33** real-time core, and exposes state over **BLE** to a phone /
-Web-Bluetooth frontend.
+the **CM33** real-time core, and exposes state over **BLE** to a Lingguang flash
+app.
 
 > **Scaffold only.** Structure, manifests, crate skeletons, stub types, and READMEs
 > are in place; there is no complete product implementation yet. The firm inputs
@@ -21,7 +21,7 @@ Web-Bluetooth frontend.
         IWR6843 ──serial──►  CA35 (Linux, tokio)                 CM33 (embassy)
                              ├─ snf-radar   (pure-Rust UART + TLV indicators)
                              ├─ snf-fatigue (ONNX via consortium-ort)
-                             ├─ snf-ble     (BlueZ / bluer) ──BLE──► apps/web (Nuxt)
+                             ├─ snf-ble     (BlueZ / bluer) ──BLE──► apps/lingguang
                              └─ snf-app  ◄── actuator IPC channel ──► snf-mcu
                                                                        (pump PWM,
                                                                         valves, pressure)
@@ -41,7 +41,7 @@ no `[hmi]`).
 | `crates/fatigue`      | `snf-fatigue` — ONNX pipeline on `consortium-ort`                             |
 | `crates/app`          | `snf-app` — CA35 Linux endpoint (excluded from workspace, pipeline-built)     |
 | `crates/mcu`          | `snf-mcu` — CM33 pneumatic firmware (excluded from workspace, pipeline-built) |
-| `apps/web`            | Nuxt + Web Bluetooth frontend                                                 |
+| `apps/lingguang`      | React + TypeScript Lingguang flash app                                        |
 | `models/`             | 3D models (enclosure, bladder housings, radar mount)                          |
 | `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping                                      |
 
@@ -68,9 +68,12 @@ container.
 # Host-checkable libraries (radar vitals + fatigue ONNX are feature-gated off by default).
 cargo check --workspace
 
-# JavaScript workspace (Vite+).
+# Repository-level JavaScript tooling (Vite+).
 vp install
-vp dev
+
+# Vite+ orchestrates npm ci plus the official Lingguang scaffold checks.
+vp run -w check:lingguang
+vp run -w dev:lingguang
 ```
 
 ### Dev container (Apple `container`)

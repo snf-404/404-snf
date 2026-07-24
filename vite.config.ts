@@ -1,9 +1,30 @@
 import { defineConfig } from 'vite-plus'
 
-// Vite+ workspace config. Mirrors the consortium repo's setup: format/lint on
-// staged files, no semicolons, single quotes, sorted imports. TOML and the Rust
-// tree are ignored — those are handled by rustfmt/taplo.
+// Vite+ repository config. Lingguang keeps its official npm dependencies and
+// quality gate; Vite+ remains an additional repository-level check and hook.
+// TOML and Rust sources are handled by rustfmt/taplo.
 export default defineConfig({
+  run: {
+    tasks: {
+      'install:lingguang': {
+        command: 'npm --prefix apps/lingguang ci',
+        cache: false,
+      },
+      'check:lingguang': {
+        command: 'npm --prefix apps/lingguang run check',
+        cache: false,
+        dependsOn: ['install:lingguang'],
+      },
+      'build:lingguang': {
+        command: 'npm --prefix apps/lingguang run build',
+        cache: false,
+      },
+      'dev:lingguang': {
+        command: 'npm --prefix apps/lingguang run dev',
+        cache: false,
+      },
+    },
+  },
   staged: {
     '*': 'vp check --fix',
   },

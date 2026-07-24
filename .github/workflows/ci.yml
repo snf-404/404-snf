@@ -73,19 +73,28 @@ jobs:
         working-directory: 404-snf
         run: cargo test --workspace
 
-  web:
-    name: Web (format, lint, typecheck)
+  frontend:
+    name: Frontend (Vite+ + Lingguang)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # The JS workspace is driven by Vite+ (`vp`), which manages Node and pnpm.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/lingguang/package-lock.json
+
+      # Vite+ owns repository-level checks and commit-hook conventions. The
+      # Lingguang app remains npm-managed so its official lockfile is preserved.
       - name: Install Vite+
         run: npm install -g vite-plus
 
-      - name: Install dependencies
+      - name: Install repository tooling
         run: vp install
 
-      # `vp check` runs format, lint, and type checks across the workspace.
-      - name: Check web app
-        run: vp check
+      # The Vite+ task first runs npm ci from the official lockfile, then runs
+      # the scaffold's lint, typecheck, manifest/build-contract checks and build.
+      - name: Check Lingguang app
+        run: vp run -w check:lingguang
