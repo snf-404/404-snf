@@ -1,0 +1,56 @@
+#container {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  background: #070a0b;
+}
+
+.ambient-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.14;
+  background-image:
+    linear-gradient(rgba(183, 255, 53, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(183, 255, 53, 0.09) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+.toast {
+  position: fixed;
+  z-index: 50;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  left: calc(env(safe-area-inset-left, 0px) + 16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  border: 1px solid rgba(183, 255, 53, 0.28);
+  background: rgba(12, 17, 15, 0.94);
+  color: rgba(241, 246, 244, 0.82);
+  font-size: 12px;
+  backdrop-filter: blur(16px);
+}
+
+@media (min-width: 640px) {
+  .toast {
+    left: auto;
+    max-width: 420px;
+    padding-inline: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
