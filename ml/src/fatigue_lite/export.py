@@ -49,9 +49,7 @@ def export(model_path: Path, output_path: Path) -> None:
     import onnxruntime
 
     onnx.checker.check_model(onnx.load(str(output_path)))
-    session = onnxruntime.InferenceSession(
-        str(output_path), providers=["CPUExecutionProvider"]
-    )
+    session = onnxruntime.InferenceSession(str(output_path), providers=["CPUExecutionProvider"])
     assert session.get_inputs()[0].name == INPUT_NAME
     assert list(session.get_inputs()[0].shape) == [1, len(FEATURE_NAMES)]
     assert session.get_outputs()[0].name == OUTPUT_NAME

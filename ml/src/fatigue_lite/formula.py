@@ -36,4 +36,3 @@ def empirical_fatigue_score(row: Mapping[str, object]) -> float:
 
 def empirical_scores(rows: Sequence[Mapping[str, object]]) -> list[float]:
     return [empirical_fatigue_score(row) for row in rows]
-

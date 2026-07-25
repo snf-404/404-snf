@@ -4,8 +4,11 @@
 //!
 //! Orchestrates the full upper layer:
 //!
-//! 1. reads IWR6843 frames via [`snf_radar`] over the sensor's USB virtual COM
-//!    port — the radar is a Linux tty, so this is a plain `tokio-serial` read,
+//! 1. sends the IWR6843 its configuration profile over the sensor's 115 200-baud
+//!    CLI tty ([`snf_radar::RadarCli`]) — the sensor boots idle and its data
+//!    port stays silent until that profile's `sensorStart` runs — then reads
+//!    frames via [`snf_radar`] from the 921 600-baud data tty, both over the
+//!    sensor's USB virtual COM port and so both a plain `tokio-serial` read,
 //! 2. extracts indicators, windows them into model features via
 //!    [`snf_bridge::features`], and classifies fatigue via [`snf_fatigue`]
 //!    (ONNX) — then decides through [`snf_bridge::confidence`] how much of that
@@ -23,8 +26,9 @@
 //!
 //! The CM33 still owns USART6 and still offers parsed frames over the `radar`
 //! IPC channel (see `crates/mcu`), but that is **not** the default source: with
-//! the sensor on virtual COM there is nothing on USART6 to read. This binary
-//! only checks the link at start-up.
+//! the sensor on virtual COM there is nothing on USART6 to read. All this binary
+//! ever does with the channel is ping it once — and only when `[mcu] link_check`
+//! asks, since a silent CM33 costs this build nothing.
 //!
 //! Reading runs in its own task so a `tokio::select!` branch firing never cancels
 //! a partial UART read.
@@ -49,7 +53,7 @@ use snf_bridge::{
     map,
 };
 use snf_fatigue::FatigueModel;
-use snf_radar::{IndicatorEngine, RadarConfig, RadarFrame, RadarStream};
+use snf_radar::{IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarFrame, RadarStream};
 use snf_shared::{RadarControl, RadarReport};
 
 mod config;
@@ -116,13 +120,22 @@ include!("consortium.gen.rs");
 /// no `/dev/uioN`.
 #[consortium_runtime_app::fail]
 fn on_init_failure(err: ConsortiumInitError) {
-    tracing_subscriber::fmt::init();
+    init_logging();
     tracing::error!("snf-app: IPC bring-up failed: {err:?}");
+}
+
+/// Install the subscriber. The filter comes from `RUST_LOG`, or failing that the
+/// `log` key in `Repose.toml` — see [`config::log_filter`] for why the file is
+/// consulted here rather than after it has been properly loaded.
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(config::log_filter())
+        .init();
 }
 
 #[consortium_runtime_app::main]
 async fn main(mut context: Context) {
-    tracing_subscriber::fmt::init();
+    init_logging();
     tracing::info!("snf-app: CA35 application started; IPC bring-up complete");
 
     // ── Where the hardware is ────────────────────────────────────────────────
@@ -170,11 +183,42 @@ async fn main(mut context: Context) {
         }
     };
 
-    // ── CM33 link check ──────────────────────────────────────────────────────
-    // The CM33 owns USART6 and can serve parsed frames over this channel, but
-    // with the sensor on virtual COM there is nothing on USART6 to read. Tell it
-    // so once, and log the reply as proof the shared-memory link came up.
-    check_cm33_link(&mut context).await;
+    // ── Radar configuration: the sensor's other UART ─────────────────────────
+    // The IWR6843 boots idle. Its 115 200-baud CLI port takes the profile, whose
+    // last line is `sensorStart`, and only then does the 921 600-baud data port
+    // produce a single byte — so this has to happen before the data port is
+    // opened, and a failure here is fatal rather than degraded: there is no
+    // partial sensing to fall back to, and the next thing to go wrong would be a
+    // silent UART that looks like a wiring fault.
+    if config.radar.configure_on_connect {
+        let cli_config: RadarCliConfig = config.radar.clone().into();
+        match RadarCli::configure(&cli_config).await {
+            Ok(report) => {
+                tracing::info!(
+                    "snf-app: radar configured over {} ({} commands)",
+                    cli_config.cli_port,
+                    report.commands
+                );
+                // `Debug: Init Calibration Status = …` from `sensorStart` lands
+                // here, which is the line worth having in the journal.
+                for note in report.notes {
+                    tracing::info!("snf-app: radar {note}");
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "snf-app: radar configuration on {} failed: {e}",
+                    cli_config.cli_port
+                );
+                return;
+            }
+        }
+    } else {
+        tracing::info!(
+            "snf-app: radar.configure_on_connect = false; expecting the sensor to have been \
+             started elsewhere"
+        );
+    }
 
     // ── Radar pipeline: read frames in a task, extract indicators here ───────
     let radar_config: RadarConfig = config.radar.clone().into();
@@ -206,6 +250,23 @@ async fn main(mut context: Context) {
         }
     };
 
+    // ── CM33 link check: opt-in, advisory, and last ──────────────────────────
+    // The IPC descriptor handshake already happened in `init()`; this is the
+    // separate question of whether anything is *answering* on the other side.
+    // The CM33 owns USART6, which carries nothing in the virtual-COM
+    // configuration, so its front-end is not on the path to a single reading —
+    // which is why this runs after the sensing pipeline is up, is off unless a
+    // board asks for it, and treats silence as a warning. A CM33 that is
+    // unflashed, held in reset, or simply slow must not cost the sensing half
+    // anything, and before the timeout it could stall start-up indefinitely.
+    if config.mcu.link_check {
+        check_cm33_link(
+            &mut context,
+            Duration::from_millis(config.mcu.link_check_timeout_ms),
+        )
+        .await;
+    }
+
     let mut status_tick = tokio::time::interval(STATUS_PERIOD);
     let mut actuator_tick = tokio::time::interval(ACTUATOR_PERIOD);
     let mut last_vitals_at: Option<Instant> = None;
@@ -229,6 +290,13 @@ async fn main(mut context: Context) {
                     accounting.note_radar_gap();
                     continue;
                 };
+                if let Some(temperature_c) = frame
+                    .temperature_stats
+                    .as_ref()
+                    .and_then(|stats| stats.processor_temperature_c())
+                {
+                    accounting.set_processor_temp_c(f32::from(temperature_c));
+                }
                 let now = Instant::now();
                 let snapshot = indicators.update(now, &frame);
 
@@ -369,12 +437,19 @@ async fn main(mut context: Context) {
     }
 }
 
-/// Ping the CM33 once and log its reply, so a dead shared-memory link shows up at
-/// start-up rather than the first time something needs it.
+/// Ping the CM33 once and log its reply, so a shared-memory link with nothing
+/// behind it shows up at start-up rather than the first time something needs it.
 ///
-/// `streaming: false` parks the CM33's USART6 front-end: nothing is wired to that
-/// port in the virtual-COM configuration, so there is no reason for it to spin.
-async fn check_cm33_link(context: &mut Context) {
+/// Every outcome is advisory. The CM33's front-end serves a wiring this build
+/// does not use, so no answer is a warning and never a reason to stop: a board
+/// whose CM33 is unflashed or held in reset still senses, classifies, actuates
+/// and publishes exactly as before.
+///
+/// `streaming: false` parks that front-end: nothing is wired to USART6 in the
+/// virtual-COM configuration, so there is no reason for it to spin. The transfer
+/// is a strict pull (see `crates/mcu`), so a CM33 that never hears this simply
+/// stays idle in `recv` — skipping the check leaves nothing running.
+async fn check_cm33_link(context: &mut Context, timeout: Duration) {
     let request = RadarControl {
         seq: 0,
         streaming: false,
@@ -383,12 +458,19 @@ async fn check_cm33_link(context: &mut Context) {
         tracing::warn!("snf-app: CM33 link check send failed: {e}");
         return;
     }
-    match context.ipc_shm.radar.recv().await {
-        Ok(message) => {
+    // Abandoning `recv` mid-flight is safe only because this is the sole reader
+    // of the channel and it runs exactly once: nothing later depends on where a
+    // cancelled receive left off.
+    match tokio::time::timeout(timeout, context.ipc_shm.radar.recv()).await {
+        Ok(Ok(message)) => {
             let report: RadarReport = message.into_inner();
             tracing::info!("snf-app: CM33 link up (report seq={})", report.seq);
         }
-        Err(e) => tracing::warn!("snf-app: CM33 link check recv failed: {e}"),
+        Ok(Err(e)) => tracing::warn!("snf-app: CM33 link check recv failed: {e}"),
+        Err(_) => tracing::warn!(
+            "snf-app: no CM33 reply within {} ms; continuing without the USART6 front-end",
+            timeout.as_millis()
+        ),
     }
 }
 

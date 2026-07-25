@@ -34,8 +34,8 @@
 //! Values that are well-formed but wrong for the board need nothing here: a
 //! nonexistent pwmchip already surfaces as an `io::Error` from
 //! [`Pneumatics::open`](crate::pneumatics::Pneumatics::open), which `main`
-//! degrades to telemetry-only, and a bad tty already stops
-//! `RadarStream::open`.
+//! degrades to telemetry-only, and a bad tty already stops `RadarCli::configure`
+//! or `RadarStream::open`.
 
 use std::fmt;
 use std::fs;
@@ -43,12 +43,15 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use snf_radar::{RadarConfig, RadarProtocol};
+use snf_radar::{RadarCliConfig, RadarConfig, RadarProtocol};
 
 use crate::pneumatics::PneumaticConfig;
 
 /// File name looked for beside the executable.
 pub const FILE_NAME: &str = "Repose.toml";
+
+/// Log filter used when neither `RUST_LOG` nor `log` says otherwise.
+pub const DEFAULT_LOG: &str = "info";
 
 /// PWM carrier range the valve armature can actually follow, per
 /// [`SECTION_PWM_HZ`](crate::pneumatics::SECTION_PWM_HZ)'s reasoning. Outside it
@@ -61,16 +64,49 @@ const ADVISED_PWM_HZ: std::ops::RangeInclusive<u32> = 20..=50;
 /// Every section and every key is optional; anything omitted keeps the value
 /// compiled into this binary. That is what lets a board carry a two-line file
 /// correcting one pwmchip index instead of a full copy of the defaults.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct ReposeConfig {
+    /// The `tracing` filter, in `RUST_LOG` syntax — `info`,
+    /// `snf_app=debug,snf_radar=trace,warn`. `RUST_LOG` still wins when it is
+    /// set, so a one-off `RUST_LOG=trace ./snf-app` needs no edit here.
+    ///
+    /// Top-level, so in the file it must appear **before** the first `[section]`
+    /// header — everything after one belongs to that section.
+    #[serde(default = "default_log")]
+    pub log: String,
     pub radar: RadarSection,
     pub pneumatics: PneumaticsSection,
     pub fatigue: FatigueSection,
     pub ble: BleSection,
+    pub mcu: McuSection,
 }
 
-/// `[radar]` — the IWR6843's data UART.
+// Hand-written rather than derived: `String::default()` is empty, and the
+// default filter has to be the same `info` whether the key was absent or the
+// whole file was.
+impl Default for ReposeConfig {
+    fn default() -> Self {
+        Self {
+            log: default_log(),
+            radar: RadarSection::default(),
+            pneumatics: PneumaticsSection::default(),
+            fatigue: FatigueSection::default(),
+            ble: BleSection::default(),
+            mcu: McuSection::default(),
+        }
+    }
+}
+
+fn default_log() -> String {
+    DEFAULT_LOG.to_string()
+}
+
+/// `[radar]` — the IWR6843's two UARTs: the configuration CLI and the data port.
+///
+/// The sensor enumerates both and they are not interchangeable. The CLI port
+/// takes the profile at 115 200 baud; only once its last line, `sensorStart`,
+/// has been accepted does the data port emit anything at 921 600.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct RadarSection {
@@ -79,6 +115,21 @@ pub struct RadarSection {
     /// second); `/dev/ttyUSB1` behind a bare FTDI cable. Check `dmesg`.
     pub data_port: String,
     pub baud_rate: u32,
+    /// Serial device path for the configuration port — the tty *below*
+    /// [`data_port`](Self::data_port).
+    pub cli_port: String,
+    pub cli_baud_rate: u32,
+    /// Send the profile at start-up. Leave it on: a sensor nobody configured
+    /// never starts, and the symptom is a data port that reads like broken
+    /// wiring. Turn it off only when something else owns the CLI port — a bench
+    /// running the mmWave Demo Visualizer against the same sensor.
+    pub configure_on_connect: bool,
+    /// A TI `.cfg` profile to send instead of the built-in Out-of-Box one. The
+    /// built-in profile matches the factory demo only, so any other firmware —
+    /// vital signs included — needs a file here.
+    pub profile_path: Option<String>,
+    /// How long one configuration command may take to answer `Done`.
+    pub cli_timeout_ms: u64,
     /// Must match the firmware flashed on the sensor: `"out-of-box"` or
     /// `"vital-signs"`.
     pub protocol: RadarProtocol,
@@ -88,18 +139,29 @@ pub struct RadarSection {
 
 impl Default for RadarSection {
     fn default() -> Self {
-        // Derived from the type this section feeds, so the two cannot drift —
-        // except `data_port`, where the radar crate's dev-host default
-        // (`/dev/ttyUSB1`) is not this board's.
+        // Derived from the types this section feeds, so they cannot drift —
+        // except the two port paths, where the radar crate's dev-host defaults
+        // (`/dev/ttyUSB0`/`1`) are not this board's.
         let RadarConfig {
             baud_rate,
             protocol,
             max_packet_length,
             ..
         } = RadarConfig::default();
+        let RadarCliConfig {
+            baud_rate: cli_baud_rate,
+            profile_path,
+            command_timeout_ms,
+            ..
+        } = RadarCliConfig::default();
         Self {
             data_port: "/dev/ttyACM1".to_string(),
             baud_rate,
+            cli_port: "/dev/ttyACM0".to_string(),
+            cli_baud_rate,
+            configure_on_connect: true,
+            profile_path,
+            cli_timeout_ms: command_timeout_ms,
             protocol,
             max_packet_length,
         }
@@ -113,6 +175,17 @@ impl From<RadarSection> for RadarConfig {
             baud_rate: section.baud_rate,
             protocol: section.protocol,
             max_packet_length: section.max_packet_length,
+        }
+    }
+}
+
+impl From<RadarSection> for RadarCliConfig {
+    fn from(section: RadarSection) -> Self {
+        Self {
+            cli_port: section.cli_port,
+            baud_rate: section.cli_baud_rate,
+            profile_path: section.profile_path,
+            command_timeout_ms: section.cli_timeout_ms,
         }
     }
 }
@@ -202,6 +275,38 @@ impl Default for FatigueSection {
     }
 }
 
+/// `[mcu]` — the start-up ping across the `radar` IPC channel to the CM33.
+///
+/// Opt-in, because it answers a question this build does not depend on. The IPC
+/// descriptor handshake happens in `init()` either way; what this adds is proof
+/// that something is *replying* on the far side. The CM33's front-end serves
+/// USART6, which carries nothing in the virtual-COM configuration, so a board
+/// whose CM33 is unflashed or held in reset is not a degraded board — and the
+/// check would report a problem it does not have.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct McuSection {
+    /// Ping the CM33 once, after the sensing pipeline is up. Worth turning on
+    /// while bringing up the CM33 half or a build that wires the sensor to
+    /// USART6.
+    pub link_check: bool,
+    /// How long to wait for the reply. Silence is logged and start-up carries
+    /// on; the bound exists because an unanswered `recv` on shared memory waits
+    /// forever, which would hold the whole application short of its main loop.
+    pub link_check_timeout_ms: u64,
+}
+
+impl Default for McuSection {
+    fn default() -> Self {
+        Self {
+            link_check: false,
+            // Long enough for a CM33 that is merely busy, short enough that a
+            // board with no CM33 at all does not notice the pause.
+            link_check_timeout_ms: 500,
+        }
+    }
+}
+
 /// `[ble]` — which BlueZ adapter to advertise on.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -260,6 +365,15 @@ impl ReposeConfig {
     /// Only the cases where continuing would panic or would obviously fail
     /// later; anything a board can legitimately do differently is left alone.
     fn validate(&self) -> Result<(), String> {
+        // A filter that does not parse is worse than a wrong one: `EnvFilter`
+        // would fall back to something silent, and the first symptom is an
+        // empty log on a board you are already trying to debug.
+        if let Err(error) = tracing_subscriber::EnvFilter::try_new(&self.log) {
+            return Err(format!(
+                "log = {:?} is not a valid filter: {error}",
+                self.log
+            ));
+        }
         if self.radar.data_port.is_empty() {
             return Err("radar.data_port is empty".to_string());
         }
@@ -269,6 +383,38 @@ impl ReposeConfig {
         if self.radar.max_packet_length == 0 {
             return Err("radar.max_packet_length must be non-zero".to_string());
         }
+        if self.radar.configure_on_connect {
+            if self.radar.cli_port.is_empty() {
+                return Err("radar.cli_port is empty".to_string());
+            }
+            // The CLI and the data stream are different ttys on the same sensor.
+            // Pointed at one port, the profile would be written into the binary
+            // stream and the frames read out of a terminal.
+            if self.radar.cli_port == self.radar.data_port {
+                return Err(format!(
+                    "radar.cli_port and radar.data_port are both {}; the sensor's \
+                     configuration and data UARTs are separate ttys",
+                    self.radar.cli_port
+                ));
+            }
+            if self.radar.cli_baud_rate == 0 {
+                return Err("radar.cli_baud_rate must be non-zero".to_string());
+            }
+            if self.radar.cli_timeout_ms == 0 {
+                return Err("radar.cli_timeout_ms must be non-zero".to_string());
+            }
+            // The built-in profile is the factory demo's. Sending it to vital
+            // signs firmware would configure a sensor that then streams TLVs
+            // this build would try to read as the other protocol.
+            if self.radar.protocol == RadarProtocol::VitalSigns && self.radar.profile_path.is_none()
+            {
+                return Err(
+                    "radar.protocol = \"vital-signs\" needs radar.profile_path: the built-in \
+                     profile configures the factory out-of-box demo"
+                        .to_string(),
+                );
+            }
+        }
         // `SysfsPwm::new` asserts this; catching it here turns a panic partway
         // through bring-up into a start-up error naming the key.
         if self.pneumatics.pwm_hz == 0 {
@@ -276,6 +422,10 @@ impl ReposeConfig {
         }
         if self.fatigue.model_path.is_empty() {
             return Err("fatigue.model_path is empty".to_string());
+        }
+        // Zero would be a check that can only ever report failure.
+        if self.mcu.link_check && self.mcu.link_check_timeout_ms == 0 {
+            return Err("mcu.link_check_timeout_ms must be non-zero".to_string());
         }
         Ok(())
     }
@@ -298,11 +448,23 @@ impl ReposeConfig {
     /// did it actually use" without anyone having to guess which file won.
     pub fn log_summary(&self) {
         tracing::info!(
-            "snf-app: radar {} @ {} ({:?}); sections pwmchip{}/pwm{} + pwmchip{}/pwm{} @ {} Hz; \
-             model {} rev {}; ble adapter {}",
+            "snf-app: log {}; radar {} @ {} ({:?}), cli {} @ {} ({}); \
+             sections pwmchip{}/pwm{} + pwmchip{}/pwm{} @ {} Hz; \
+             model {} rev {}; ble adapter {}; cm33 link check {}",
+            self.log,
             self.radar.data_port,
             self.radar.baud_rate,
             self.radar.protocol,
+            self.radar.cli_port,
+            self.radar.cli_baud_rate,
+            match (
+                self.radar.configure_on_connect,
+                self.radar.profile_path.as_deref(),
+            ) {
+                (false, _) => "profile not sent".to_string(),
+                (true, Some(path)) => format!("profile {path}"),
+                (true, None) => "built-in profile".to_string(),
+            },
             self.pneumatics.section_a.chip,
             self.pneumatics.section_a.channel,
             self.pneumatics.section_b.chip,
@@ -311,8 +473,33 @@ impl ReposeConfig {
             self.fatigue.model_path,
             self.fatigue.revision,
             self.ble.adapter.as_deref().unwrap_or("<default>"),
+            if self.mcu.link_check {
+                format!("{} ms", self.mcu.link_check_timeout_ms)
+            } else {
+                "off".to_string()
+            },
         );
     }
+}
+
+/// The `tracing` filter to build the subscriber with, before there is one.
+///
+/// `RUST_LOG` wins, then the file's `log` key, then [`DEFAULT_LOG`]. This reads
+/// the file a second time on purpose: the subscriber must exist before [`load`]
+/// can report anything, and building it needs a filter. Every failure here is
+/// therefore silent — `load` reads the same file moments later and says exactly
+/// what is wrong with it, through a subscriber that by then exists.
+pub fn log_filter() -> String {
+    match std::env::var("RUST_LOG") {
+        Ok(filter) if !filter.trim().is_empty() => filter,
+        _ => filter_from_file().unwrap_or_else(default_log),
+    }
+}
+
+fn filter_from_file() -> Option<String> {
+    let text = fs::read_to_string(path().ok()?).ok()?;
+    let config: ReposeConfig = toml::from_str(&text).ok()?;
+    Some(config.log)
 }
 
 /// Where [`load`] will look: `Repose.toml` beside the running executable.
@@ -367,7 +554,7 @@ fn parse(path: &Path, text: &str) -> Result<ReposeConfig, ConfigError> {
 
 #[cfg(test)]
 mod tests {
-    use snf_radar::DEFAULT_MAX_PACKET_LENGTH;
+    use snf_radar::{DEFAULT_CLI_BAUD_RATE, DEFAULT_MAX_PACKET_LENGTH};
 
     use super::*;
     use crate::pneumatics::SECTION_PWM_HZ;
@@ -435,18 +622,94 @@ mod tests {
         ));
     }
 
+    /// One tty cannot be both UARTs, and the CLI keys only have to make sense
+    /// when the profile is actually going to be sent.
+    #[test]
+    fn the_two_radar_ports_must_differ_while_configuring() {
+        assert!(matches!(
+            parse_str("[radar]\ncli_port = \"/dev/ttyACM1\"\n"),
+            Err(ConfigError::Invalid { .. })
+        ));
+        assert!(matches!(
+            parse_str("[radar]\ncli_baud_rate = 0\n"),
+            Err(ConfigError::Invalid { .. })
+        ));
+        assert!(
+            parse_str(
+                "[radar]\n\
+                 configure_on_connect = false\n\
+                 cli_port = \"\"\n\
+                 cli_baud_rate = 0\n"
+            )
+            .is_ok()
+        );
+    }
+
+    /// A filter that does not parse would leave the board quiet, which is the
+    /// worst possible way to find out about a typo.
+    #[test]
+    fn an_unparseable_log_filter_is_rejected() {
+        assert_eq!(ReposeConfig::default().log, DEFAULT_LOG);
+        assert!(parse_str("log = \"snf_app=debug,warn\"\n").is_ok());
+        assert!(matches!(
+            parse_str("log = \"snf_app=louder\"\n"),
+            Err(ConfigError::Invalid { .. })
+        ));
+    }
+
+    /// The CM33 ping is off unless a board asks for it, and its bound only has
+    /// to make sense when it is on.
+    #[test]
+    fn the_cm33_link_check_is_opt_in() {
+        assert!(!McuSection::default().link_check);
+        assert!(matches!(
+            parse_str("[mcu]\nlink_check = true\nlink_check_timeout_ms = 0\n"),
+            Err(ConfigError::Invalid { .. })
+        ));
+        assert!(parse_str("[mcu]\nlink_check_timeout_ms = 0\n").is_ok());
+    }
+
+    /// The built-in profile configures the factory demo, so the other firmware
+    /// has to bring its own — silently starting the sensor in the wrong mode
+    /// would produce TLVs the selected parser cannot read.
+    #[test]
+    fn vital_signs_needs_an_explicit_profile() {
+        assert!(matches!(
+            parse_str("[radar]\nprotocol = \"vital-signs\"\n"),
+            Err(ConfigError::Invalid { .. })
+        ));
+        assert!(
+            parse_str(
+                "[radar]\n\
+                 protocol = \"vital-signs\"\n\
+                 profile_path = \"/opt/snf/vital-signs.cfg\"\n"
+            )
+            .is_ok()
+        );
+    }
+
     #[test]
     fn sections_convert_to_the_types_they_feed() {
         let config = parse_str(
             "[radar]\n\
              data_port = \"/dev/ttyUSB1\"\n\
+             cli_port = \"/dev/ttyUSB0\"\n\
              protocol = \"vital-signs\"\n\
+             profile_path = \"/opt/snf/vital-signs.cfg\"\n\
              [pneumatics]\n\
              pwm_hz = 25\n\
              section_a = { chip = 6, channel = 0 }\n\
              section_b = { chip = 7, channel = 1 }\n",
         )
         .unwrap();
+
+        let cli: RadarCliConfig = config.radar.clone().into();
+        assert_eq!(cli.cli_port, "/dev/ttyUSB0");
+        assert_eq!(cli.baud_rate, DEFAULT_CLI_BAUD_RATE);
+        assert_eq!(
+            cli.profile_path.as_deref(),
+            Some("/opt/snf/vital-signs.cfg")
+        );
 
         let radar: RadarConfig = config.radar.into();
         assert_eq!(radar.data_port, "/dev/ttyUSB1");

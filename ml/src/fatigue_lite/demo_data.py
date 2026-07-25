@@ -36,8 +36,12 @@ def generate(path: Path, subjects: int = 20, windows: int = 30, seed: int = 404)
                 "window_start": f"2026-01-01T{window // 60:02d}:{window % 60:02d}:00Z",
                 "heart_rate_bpm": baseline_hr - 8.0 * progression + rng.gauss(0, 2.0),
                 "respiration_rate_bpm": baseline_rr - 3.0 * progression + rng.gauss(0, 0.8),
-                "rms_radial_speed_mps": max(0.002, 0.11 - 0.075 * progression + rng.gauss(0, 0.012)),
-                "moving_point_fraction": min(1.0, max(0.0, 0.65 - 0.40 * progression + rng.gauss(0, 0.08))),
+                "rms_radial_speed_mps": max(
+                    0.002, 0.11 - 0.075 * progression + rng.gauss(0, 0.012)
+                ),
+                "moving_point_fraction": min(
+                    1.0, max(0.0, 0.65 - 0.40 * progression + rng.gauss(0, 0.08))
+                ),
                 "short_term_energy_mps2": short_energy,
                 "long_term_energy_mps2": long_energy,
                 "baseline_heart_rate_bpm": baseline_hr,

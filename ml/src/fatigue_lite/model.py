@@ -18,4 +18,3 @@ class FatigueLinearModel(nn.Module):
 
     def logits(self, features: torch.Tensor) -> torch.Tensor:
         return self.linear(features).squeeze(-1)
-

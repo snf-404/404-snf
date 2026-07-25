@@ -69,9 +69,7 @@ def engineer_features(row: Mapping[str, object]) -> list[float]:
     )
     motion_quietness = 1.0 - _clip(rms_speed / 0.10, 0.0, 1.0)
     moving_point_quietness = 1.0 - moving_fraction
-    recent_motion_drop = _clip(
-        (long_energy - short_energy) / max(long_energy, 1e-6), -1.0, 1.0
-    )
+    recent_motion_drop = _clip((long_energy - short_energy) / max(long_energy, 1e-6), -1.0, 1.0)
     agreement = heart_slowdown * respiration_slowdown
 
     return [
@@ -86,4 +84,3 @@ def engineer_features(row: Mapping[str, object]) -> list[float]:
 
 def feature_matrix(rows: Sequence[Mapping[str, object]]) -> list[list[float]]:
     return [engineer_features(row) for row in rows]
-

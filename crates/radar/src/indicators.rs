@@ -557,6 +557,9 @@ mod tests {
                     noise_db: None,
                 })
                 .collect(),
+            range_profile: None,
+            processing_stats: None,
+            temperature_stats: None,
             #[cfg(feature = "vital-signs")]
             vital_signs: Vec::new(),
             unknown_tlv_types: Vec::new(),

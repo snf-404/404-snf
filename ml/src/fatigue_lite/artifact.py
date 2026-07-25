@@ -53,4 +53,3 @@ def load_artifact(path: Path) -> tuple[FatigueLinearModel, torch.Tensor, torch.T
         torch.tensor(payload["scale"], dtype=torch.float32),
         payload,
     )
-

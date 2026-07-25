@@ -1,7 +1,7 @@
 # snf-radar
 
-Pure-Rust IWR6843 data-UART transport, TLV parsing, and transparent signal
-indicators. No C/C++ compiler, native shim, or TI host SDK is used.
+Pure-Rust IWR6843 UART transport — both ports — TLV parsing, and transparent
+signal indicators. No C/C++ compiler, native shim, or TI host SDK is used.
 
 > The IWR6843 reaches the board over its **USB virtual COM port**, so the radar
 > is an ordinary Linux tty and `RadarStream` reads it directly on the CA35 —
@@ -20,6 +20,65 @@ firmware on the radar:
 cargo test -p snf-radar
 cargo test -p snf-radar --features vital-signs
 ```
+
+## The two UARTs
+
+The sensor enumerates **two** ttys and they are not interchangeable:
+
+| Port | Baud | Carries |
+|---|---:|---|
+| CLI (`/dev/ttyACM0`, `/dev/ttyUSB0`) | 115 200 | the `mmwDemo:/>` prompt — configuration commands |
+| Data (`/dev/ttyACM1`, `/dev/ttyUSB1`) | 921 600 | the binary TLV stream |
+
+The IWR6843 boots **idle**. Until a configuration profile has been sent to the
+CLI port and its last line, `sensorStart`, has been accepted, the data port
+produces nothing at all — which looks exactly like a broken cable. So the
+connect sequence is: configure, *then* read.
+
+```rust,no_run
+use snf_radar::{RadarCli, RadarCliConfig, RadarConfig, RadarStream};
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+// Sends the profile, one command at a time, each awaiting its own `Done`.
+let report = RadarCli::configure(&RadarCliConfig {
+    cli_port: "/dev/ttyUSB0".into(),
+    ..RadarCliConfig::default()
+})
+.await?;
+for note in &report.notes {
+    // `sensorStart: Debug: Init Calibration Status = 0x1ffe`
+    println!("{note}");
+}
+
+let mut radar = RadarStream::open(RadarConfig::default())?;
+# let _ = &mut radar;
+# Ok(())
+# }
+```
+
+With no `profile_path`, `RadarCli::configure` sends the profile compiled into
+this crate, [`profiles/out-of-box-6843isk.cfg`](profiles/out-of-box-6843isk.cfg)
+— the factory Out-of-Box demo at 10 Hz, static clutter retained (the
+gross-activity indicator measures radial speed and wants the still body
+present). Any other firmware needs its own file.
+
+A profile is read from a TI `.cfg` file **or** from a pasted `mmwDemo:/>`
+session transcript; in a transcript only the text after each prompt is taken as
+a command, so the sensor's own `Done` and `Debug:` replies cannot be mistaken
+for one. `%` and `#` begin comments.
+
+The handshake is one command at a time, each waiting for its `Done`, rather than
+the whole file written at the port with a sleep between lines. `Done` is the
+only synchronisation the CLI offers. Notes along the way (`Ignored: Sensor is
+already stopped`, the calibration status after `sensorStart`) come back in
+`ConfigureReport::notes`; a line starting with `Error` fails the command and
+aborts the run, because a sensor started under a half-applied profile emits
+frames that parse cleanly and mean something else. A command that never answers
+fails after `command_timeout_ms` (5 s by default — sized for `sensorStart`, which
+replies only after RF calibration).
+
+Re-running a profile is safe on a sensor that is already streaming: the shipped
+one, like TI's, begins with `sensorStop` and `flushCfg`.
 
 ## Indicator priority
 
@@ -57,10 +116,15 @@ indicator. It does **not** calculate heart or respiration rates.
 Use the default build and protocol:
 
 ```rust,no_run
-use snf_radar::{IndicatorEngine, RadarConfig, RadarProtocol, RadarStream};
+use snf_radar::{
+    IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarProtocol, RadarStream,
+};
 use std::time::Instant;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+// The built-in profile is this firmware's, so the defaults suffice.
+RadarCli::configure(&RadarCliConfig::default()).await?;
+
 let config = RadarConfig {
     data_port: "/dev/ttyUSB1".into(),
     protocol: RadarProtocol::OutOfBox,
@@ -99,9 +163,12 @@ then:
 1. Put the IWR6843ISK into its documented flashing mode.
 2. Flash the ISK binary with TI UniFlash.
 3. Return the board to functional mode and reset it.
-4. Send the matching ISK configuration from the same example to the CLI UART
-   (normally 115200 baud), ending with `sensorStart`.
-5. Read the data UART at the baud rate selected by that configuration (normally
+4. Point `RadarCliConfig::profile_path` (`radar.profile_path` in `Repose.toml`)
+   at the matching ISK `.cfg` from the same example. The built-in profile
+   configures the *factory* demo and must not be sent to this firmware; `snf-app`
+   refuses to start rather than send it, and the pairing is why the protocol is
+   never auto-detected.
+5. Read the data UART at the baud rate that configuration selects (normally
    921600).
 
 Follow the quick-start instructions shipped with the exact Radar Toolbox
@@ -115,10 +182,19 @@ snf-radar = { path = "../radar", features = ["vital-signs"] }
 ```
 
 ```rust,no_run
-use snf_radar::{IndicatorEngine, RadarConfig, RadarProtocol, RadarStream};
+use snf_radar::{
+    IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarProtocol, RadarStream,
+};
 use std::time::Instant;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+// This firmware needs the vital-signs example's own `.cfg`.
+RadarCli::configure(&RadarCliConfig {
+    profile_path: Some("/opt/snf/vital-signs.cfg".into()),
+    ..RadarCliConfig::default()
+})
+.await?;
+
 let mut radar = RadarStream::open(RadarConfig {
     data_port: "/dev/ttyUSB1".into(),
     protocol: RadarProtocol::VitalSigns,
@@ -150,11 +226,40 @@ stream reader tolerates arbitrary UART read boundaries, leading garbage,
 multiple packets in one read, and a malformed packet followed by a valid one.
 Declared packet size is capped by `RadarConfig::max_packet_length`.
 
+### Packet padding is not zero, and must not be required to be
+
+The demo rounds `totalPacketLen` up to a multiple of
+`MMWDEMO_OUTPUT_MSG_SEGMENT_LEN` (32) and transmits the slack from a **local
+array it never initializes** — in `MmwDemo_transmitProcessedOutput`:
+
+```c
+uint8_t padding[MMWDEMO_OUTPUT_MSG_SEGMENT_LEN];   /* never assigned */
+...
+numPaddingBytes = MMWDEMO_OUTPUT_MSG_SEGMENT_LEN - (packetLen & (MMWDEMO_OUTPUT_MSG_SEGMENT_LEN-1));
+if (numPaddingBytes < MMWDEMO_OUTPUT_MSG_SEGMENT_LEN)
+{
+    UART_writePolling (uartHandle, (uint8_t*)padding, numPaddingBytes);
+}
+```
+
+So the trailing bytes are whatever that stack frame held. TI constrains the
+packet *length* only — the SDK documents the macro as "output packet length is a
+multiple of this value, must be power of 2" — and says nothing anywhere about
+the padding *content*. Nothing here inspects those bytes, and nothing should: an
+earlier version of this parser required them to be zero and rejected **71%** of
+frames from a live IWR6843, whose padding was recognisable stack debris
+(`44 d6 00 08 …`, addresses in the `0x0800xxxx` range).
+
 Out-of-Box parsing supports:
 
 - TLV 1: `x`, `y`, `z`, and radial velocity as four `f32` values per point.
+- TLV 2: unsigned Q9 log2 magnitudes for every stationary-scene range bin.
+- TLV 6: inter-frame processing/UART timing, processing margins, and CPU load.
 - TLV 7: signed SNR and noise values in 0.1 dB units.
-- Zero packet padding and forward-compatible skipping of other TLVs.
+- TLV 9: the RadarSS report status/time and all RX, TX, power-management, and
+  digital-core temperature sensors in degrees Celsius.
+- Forward-compatible skipping of other TLVs, and packet padding of any content
+  (see below).
 
 With `vital-signs`, parsing additionally supports:
 
@@ -259,6 +364,9 @@ To add an indicator:
 
 ## Field acceptance checklist
 
+- Start-up sends the profile and logs the command count plus `sensorStart`'s
+  `Debug: Init Calibration Status = …`. No frames and no such line means the
+  sensor is still idle — check the CLI port before suspecting the data port.
 - With factory firmware, dots and activity are present; vital outputs are absent.
 - With the ISK vital firmware and matching configuration, compressed dots and
   `0x410` records are present.

@@ -13,9 +13,15 @@ pub(crate) const FRAME_HEADER_LEN: usize = 40;
 const TLV_HEADER_LEN: usize = 8;
 const POINT_LEN: usize = 16;
 const SIDE_INFO_LEN: usize = 4;
+const RANGE_PROFILE_BIN_LEN: usize = 2;
+const PROCESSING_STATS_LEN: usize = 24;
+const TEMPERATURE_STATS_LEN: usize = 28;
 
 const DETECTED_POINTS: u32 = 1;
+const RANGE_PROFILE: u32 = 2;
+const PROCESSING_STATS: u32 = 6;
 const DETECTED_POINTS_SIDE_INFO: u32 = 7;
+const TEMPERATURE_STATS: u32 = 9;
 #[cfg(feature = "vital-signs")]
 const COMPRESSED_SPHERICAL_POINTS: u32 = 1020;
 #[cfg(feature = "vital-signs")]
@@ -69,6 +75,76 @@ pub struct RadarPoint {
     pub noise_db: Option<f32>,
 }
 
+/// Stationary-scene range FFT magnitudes emitted by the Out-of-Box demo.
+///
+/// Each entry is the received-antenna log2 magnitude for one range bin in
+/// unsigned Q9 format. Converting a bin to metres requires the profile's range
+/// resolution, which is configuration rather than wire data.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RangeProfile {
+    pub bins_q9: Vec<u16>,
+}
+
+impl RangeProfile {
+    /// Return a bin's log2 magnitude with its Q9 scaling removed.
+    pub fn log2_magnitude(&self, index: usize) -> Option<f32> {
+        self.bins_q9
+            .get(index)
+            .map(|value| f32::from(*value) / 512.0)
+    }
+
+    /// Index and raw Q9 value of the strongest range bin.
+    pub fn peak_bin(&self) -> Option<(usize, u16)> {
+        self.bins_q9
+            .iter()
+            .copied()
+            .enumerate()
+            .max_by_key(|(_, value)| *value)
+    }
+}
+
+/// Per-frame timing and CPU-load measurements from TLV type 6.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessingStats {
+    /// DSP processing time for the frame, in microseconds.
+    pub inter_frame_processing_time_us: u32,
+    /// UART transmission time for the previous frame, in microseconds.
+    pub transmit_output_time_us: u32,
+    /// Time left after processing the previous frame, in microseconds.
+    pub inter_frame_processing_margin_us: u32,
+    /// Inter-chirp margin in microseconds (not populated by xWR68xx OOB).
+    pub inter_chirp_processing_margin_us: u32,
+    /// CPU load during the active frame, in percent.
+    pub active_frame_cpu_load_percent: u32,
+    /// CPU load between frames, in percent.
+    pub inter_frame_cpu_load_percent: u32,
+}
+
+/// Radar subsystem temperature report from TLV type 9.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemperatureStats {
+    /// Raw TI report-valid word. Zero denotes a valid report.
+    pub report_valid: u32,
+    /// Radar-subsystem time since device power-up, in milliseconds.
+    pub time_ms: u32,
+    pub rx_c: [i16; 4],
+    pub tx_c: [i16; 3],
+    pub power_management_c: i16,
+    pub digital_c: [i16; 2],
+}
+
+impl TemperatureStats {
+    pub fn is_valid(&self) -> bool {
+        self.report_valid == 0
+    }
+
+    /// Hottest digital-core sensor, suitable for a device-health display.
+    pub fn processor_temperature_c(&self) -> Option<i16> {
+        self.is_valid()
+            .then(|| self.digital_c[0].max(self.digital_c[1]))
+    }
+}
+
 /// One raw result from TI's Vital Signs With People Tracking firmware.
 ///
 /// The waveform arrays are unitless visualizer values. Use `heart_rate_bpm`
@@ -92,6 +168,15 @@ pub struct RadarFrame {
     pub header: FrameHeader,
     /// Cartesian dots ready to plot or aggregate.
     pub points: Vec<RadarPoint>,
+    /// Stationary-scene range profile, when enabled by `guiMonitor`.
+    #[serde(default)]
+    pub range_profile: Option<RangeProfile>,
+    /// Per-frame DSP timing and load, when enabled by `guiMonitor`.
+    #[serde(default)]
+    pub processing_stats: Option<ProcessingStats>,
+    /// Radar subsystem temperatures, when supplied alongside stats.
+    #[serde(default)]
+    pub temperature_stats: Option<TemperatureStats>,
     /// Raw vendor vital records, when the opt-in firmware protocol is enabled.
     #[cfg(feature = "vital-signs")]
     pub vital_signs: Vec<VitalSignsReading>,
@@ -131,7 +216,6 @@ pub enum ParseError {
         declared: usize,
         parsed: usize,
     },
-    NonZeroPadding,
 }
 
 impl fmt::Display for ParseError {
@@ -162,7 +246,6 @@ impl fmt::Display for ParseError {
                 f,
                 "frame declares {declared} detected points but contains {parsed}"
             ),
-            Self::NonZeroPadding => f.write_str("non-zero data remains after the declared TLVs"),
         }
     }
 }
@@ -207,6 +290,9 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
     let point_count = usize::try_from(header.num_detected_objects).unwrap_or(usize::MAX);
     let mut points = Vec::new();
     let mut side_info = Vec::new();
+    let mut range_profile = None;
+    let mut processing_stats = None;
+    let mut temperature_stats = None;
     #[cfg(feature = "vital-signs")]
     let mut vital_signs = Vec::new();
     let mut unknown_tlv_types = Vec::new();
@@ -225,8 +311,13 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
         match protocol {
             RadarProtocol::OutOfBox => match tlv_type {
                 DETECTED_POINTS => parse_cartesian_points(payload, point_count, &mut points)?,
+                RANGE_PROFILE => range_profile = Some(parse_range_profile(payload)?),
+                PROCESSING_STATS => processing_stats = Some(parse_processing_stats(payload)?),
                 DETECTED_POINTS_SIDE_INFO => {
                     parse_side_info(payload, point_count, &mut side_info)?;
+                }
+                TEMPERATURE_STATS => {
+                    temperature_stats = Some(parse_temperature_stats(payload)?);
                 }
                 unknown => unknown_tlv_types.push(unknown),
             },
@@ -242,9 +333,15 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
         offset += total_len;
     }
 
-    if frame[offset..packet_length].iter().any(|byte| *byte != 0) {
-        return Err(ParseError::NonZeroPadding);
-    }
+    // Bytes between the last TLV and `packet_length` are deliberately not
+    // examined. The demo rounds `totalPacketLen` up to a multiple of
+    // `MMWDEMO_OUTPUT_MSG_SEGMENT_LEN` (32) and then transmits the slack from an
+    // uninitialized stack array — `uint8_t padding[MMWDEMO_OUTPUT_MSG_SEGMENT_LEN]`
+    // in `MmwDemo_transmitProcessedOutput`, declared and written to the UART
+    // without ever being assigned. TI specifies the packet *length* only ("output
+    // packet length is a multiple of this value"); the padding *content* is
+    // unspecified, and in practice is whatever was on that stack. Requiring zeros
+    // rejected 71% of frames from a live IWR6843.
     if points.len() != point_count {
         return Err(ParseError::PointCountMismatch {
             declared: point_count,
@@ -262,9 +359,62 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
         protocol,
         header,
         points,
+        range_profile,
+        processing_stats,
+        temperature_stats,
         #[cfg(feature = "vital-signs")]
         vital_signs,
         unknown_tlv_types,
+    })
+}
+
+fn parse_range_profile(payload: &[u8]) -> Result<RangeProfile, ParseError> {
+    if !payload.len().is_multiple_of(RANGE_PROFILE_BIN_LEN) {
+        return Err(ParseError::InvalidTlvLength {
+            tlv_type: RANGE_PROFILE,
+            declared: payload.len(),
+            expected: payload.len().saturating_add(1),
+        });
+    }
+
+    Ok(RangeProfile {
+        bins_q9: payload
+            .chunks_exact(RANGE_PROFILE_BIN_LEN)
+            .map(|bin| u16::from_le_bytes([bin[0], bin[1]]))
+            .collect(),
+    })
+}
+
+fn parse_processing_stats(payload: &[u8]) -> Result<ProcessingStats, ParseError> {
+    validate_tlv_length(PROCESSING_STATS, payload.len(), PROCESSING_STATS_LEN)?;
+    Ok(ProcessingStats {
+        inter_frame_processing_time_us: u32_at(payload, 0),
+        transmit_output_time_us: u32_at(payload, 4),
+        inter_frame_processing_margin_us: u32_at(payload, 8),
+        inter_chirp_processing_margin_us: u32_at(payload, 12),
+        active_frame_cpu_load_percent: u32_at(payload, 16),
+        inter_frame_cpu_load_percent: u32_at(payload, 20),
+    })
+}
+
+fn parse_temperature_stats(payload: &[u8]) -> Result<TemperatureStats, ParseError> {
+    validate_tlv_length(TEMPERATURE_STATS, payload.len(), TEMPERATURE_STATS_LEN)?;
+    Ok(TemperatureStats {
+        report_valid: u32_at(payload, 0),
+        time_ms: u32_at(payload, 4),
+        rx_c: [
+            i16_at(payload, 8),
+            i16_at(payload, 10),
+            i16_at(payload, 12),
+            i16_at(payload, 14),
+        ],
+        tx_c: [
+            i16_at(payload, 16),
+            i16_at(payload, 18),
+            i16_at(payload, 20),
+        ],
+        power_management_c: i16_at(payload, 22),
+        digital_c: [i16_at(payload, 24), i16_at(payload, 26)],
     })
 }
 
@@ -472,6 +622,92 @@ mod tests {
         assert_eq!(parsed.unknown_tlv_types, [5]);
     }
 
+    /// The demo transmits its 32-byte alignment slack from an uninitialized
+    /// stack array, so the padding is whatever that stack held — TI specifies
+    /// the packet length, never the padding content. These are the bytes a live
+    /// IWR6843 actually sent; requiring zeros here rejected 71% of its frames.
+    #[test]
+    fn accepts_the_uninitialized_padding_the_demo_transmits() {
+        let points = point_payload(&[[1.0, 2.0, 3.0, 4.0]]);
+        let mut frame = make_frame(1, 1, &[(DETECTED_POINTS, &points)]);
+        let padding_start = frame.len() - 12;
+        frame[padding_start..].copy_from_slice(&[
+            0x44, 0xd6, 0x00, 0x08, 0x01, 0x00, 0x00, 0x00, 0x38, 0x3b, 0x00, 0x08,
+        ]);
+
+        let parsed = parse_frame(&frame).unwrap();
+        assert_eq!(parsed.points.len(), 1);
+    }
+
+    #[test]
+    fn parses_range_profile_processing_and_temperature_stats() {
+        let range = u16_payload(&[0, 512, 1_024, u16::MAX]);
+        let stats = u32_payload(&[1_500, 250, 8_000, 0, 37, 12]);
+        let temperatures =
+            temperature_payload(0, 98_765, [-5, 20, 21, 22], [30, 31, 32], 33, [44, 46]);
+        let frame = make_frame(
+            91,
+            0,
+            &[
+                (RANGE_PROFILE, &range),
+                (PROCESSING_STATS, &stats),
+                (TEMPERATURE_STATS, &temperatures),
+            ],
+        );
+
+        let parsed = parse_frame(&frame).unwrap();
+        let profile = parsed.range_profile.unwrap();
+        assert_eq!(profile.bins_q9, [0, 512, 1_024, u16::MAX]);
+        assert_eq!(profile.log2_magnitude(1), Some(1.0));
+        assert_eq!(profile.peak_bin(), Some((3, u16::MAX)));
+
+        let stats = parsed.processing_stats.unwrap();
+        assert_eq!(stats.inter_frame_processing_time_us, 1_500);
+        assert_eq!(stats.transmit_output_time_us, 250);
+        assert_eq!(stats.inter_frame_processing_margin_us, 8_000);
+        assert_eq!(stats.inter_chirp_processing_margin_us, 0);
+        assert_eq!(stats.active_frame_cpu_load_percent, 37);
+        assert_eq!(stats.inter_frame_cpu_load_percent, 12);
+
+        let temperatures = parsed.temperature_stats.unwrap();
+        assert!(temperatures.is_valid());
+        assert_eq!(temperatures.time_ms, 98_765);
+        assert_eq!(temperatures.rx_c, [-5, 20, 21, 22]);
+        assert_eq!(temperatures.tx_c, [30, 31, 32]);
+        assert_eq!(temperatures.power_management_c, 33);
+        assert_eq!(temperatures.digital_c, [44, 46]);
+        assert_eq!(temperatures.processor_temperature_c(), Some(46));
+        assert!(parsed.unknown_tlv_types.is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_monitor_tlv_lengths() {
+        for (tlv_type, payload) in [
+            (RANGE_PROFILE, vec![0; 3]),
+            (PROCESSING_STATS, vec![0; PROCESSING_STATS_LEN - 1]),
+            (TEMPERATURE_STATS, vec![0; TEMPERATURE_STATS_LEN + 1]),
+        ] {
+            let frame = make_frame(1, 0, &[(tlv_type, &payload)]);
+            assert!(matches!(
+                parse_frame(&frame),
+                Err(ParseError::InvalidTlvLength {
+                    tlv_type: actual,
+                    ..
+                }) if actual == tlv_type
+            ));
+        }
+    }
+
+    #[test]
+    fn preserves_invalid_temperature_report_without_exposing_a_reading() {
+        let temperatures = temperature_payload(1, 20, [1; 4], [2; 3], 3, [4, 5]);
+        let frame = make_frame(1, 0, &[(TEMPERATURE_STATS, &temperatures)]);
+        let parsed = parse_frame(&frame).unwrap();
+        let temperatures = parsed.temperature_stats.unwrap();
+        assert!(!temperatures.is_valid());
+        assert_eq!(temperatures.processor_temperature_c(), None);
+    }
+
     #[test]
     fn rejects_wrong_point_count() {
         let points = point_payload(&[[1.0, 2.0, 3.0, 4.0]]);
@@ -575,6 +811,42 @@ mod tests {
             .flat_map(|(snr, noise)| [snr.to_le_bytes(), noise.to_le_bytes()])
             .flatten()
             .collect()
+    }
+
+    fn u16_payload(values: &[u16]) -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect()
+    }
+
+    fn u32_payload(values: &[u32]) -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect()
+    }
+
+    fn temperature_payload(
+        valid: u32,
+        time_ms: u32,
+        rx_c: [i16; 4],
+        tx_c: [i16; 3],
+        power_management_c: i16,
+        digital_c: [i16; 2],
+    ) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(TEMPERATURE_STATS_LEN);
+        payload.extend_from_slice(&valid.to_le_bytes());
+        payload.extend_from_slice(&time_ms.to_le_bytes());
+        for temperature in rx_c
+            .into_iter()
+            .chain(tx_c)
+            .chain([power_management_c])
+            .chain(digital_c)
+        {
+            payload.extend_from_slice(&temperature.to_le_bytes());
+        }
+        payload
     }
 
     #[cfg(feature = "vital-signs")]

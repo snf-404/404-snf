@@ -22,14 +22,53 @@
 # per-mode budgets) are not here; they live in `InflationParams` in
 # `crates/bridge/src/inflation.rs`.
 
-# ── Radar: the IWR6843's data UART ───────────────────────────────────────────
+# ── Logging ──────────────────────────────────────────────────────────────────
+# The `tracing` filter, in RUST_LOG syntax: this value IS what RUST_LOG would
+# have been. `snf_app=debug,snf_radar=debug,info` while bringing a board up;
+# `info` in service. A RUST_LOG in the environment still wins, so a one-off
+# `RUST_LOG=trace ./snf-app` needs no edit here.
+#
+# This key is top-level, so it must stay ABOVE the first `[section]` header —
+# anything after one belongs to that section.
+#
+# Under the shipped unit the output lands in /var/log/snf/snf-app.log; see
+# `tools/deploy.sh`.
+log = "info"
+
+# ── Radar: the IWR6843's two UARTs ───────────────────────────────────────────
 [radar]
 # The sensor is on its USB virtual COM port, so both of its UARTs enumerate. An
 # XDS110 ISK/BoosterPack presents the CLI port first and the data port second
 # (`/dev/ttyACM0` and `/dev/ttyACM1`); a bare FTDI cable gives
 # `/dev/ttyUSB0`/`/dev/ttyUSB1` instead. Check `dmesg` after plugging in.
+#
+# The two are not interchangeable. The CLI port takes the configuration profile
+# at 115200 baud; the data port carries the binary TLV stream at 921600, and
+# says NOTHING until the profile's last line, `sensorStart`, has been accepted.
 data_port = "/dev/ttyACM1"
 baud_rate = 921600
+cli_port = "/dev/ttyACM0"
+cli_baud_rate = 115200
+
+# Send the profile when `snf-app` starts. Leave this on: the sensor boots idle,
+# so an unconfigured one is indistinguishable from a broken cable. Turn it off
+# only when something else owns the CLI port — a bench driving the same sensor
+# from TI's mmWave Demo Visualizer, say — in which case that tool's `sensorStart`
+# is what makes the data port speak.
+configure_on_connect = true
+
+# A TI `.cfg` profile to send instead of the built-in one. The built-in profile
+# (`crates/radar/profiles/out-of-box-6843isk.cfg`, compiled into the binary)
+# configures the FACTORY out-of-box demo at 10 Hz; `protocol = "vital-signs"`
+# requires a file here, because a profile from the vital-signs example is the
+# only thing that makes that firmware stream what this build would parse.
+#
+# Both a plain `.cfg` and a pasted `mmwDemo:/>` session transcript are accepted.
+# profile_path = "/opt/snf/radar.cfg"
+
+# How long one configuration command may take to answer `Done`. The bound that
+# matters is `sensorStart`, which replies only after RF calibration.
+cli_timeout_ms = 5000
 
 # Must match the firmware currently flashed on the sensor:
 #   "out-of-box"  — factory mmWave demo, Cartesian point TLVs
@@ -89,3 +128,24 @@ revision = 4
 # Which BlueZ adapter to advertise on: "hci0", "hci1", … Leave it out (as here)
 # to take BlueZ's default adapter, which is what a board with one radio wants.
 # adapter = "hci0"
+
+# ── CM33: the optional start-up ping over the `radar` IPC channel ─────────────
+[mcu]
+# The IPC descriptor handshake happens during bring-up regardless; this is the
+# separate question of whether anything is REPLYING on the far side.
+#
+# Off by default. The CM33's front-end reads USART6, which carries nothing in the
+# virtual-COM configuration — a board whose CM33 is unflashed or held in reset
+# senses, classifies, actuates and publishes exactly as one whose CM33 is up, so
+# the check would report a problem the board does not have. Turn it on while
+# bringing up the CM33 half, or for a build that wires the sensor to USART6.
+#
+# When on, it runs LAST — after the radar, model and BLE are up — and no reply is
+# a warning, never a stop. Nothing is left running by skipping it: the transfer
+# is a strict pull, so a CM33 nobody pings simply waits.
+link_check = false
+
+# How long to wait for that reply. The bound is the point: an unanswered receive
+# on shared memory waits forever, which would hold start-up short of the main
+# loop on any board whose CM33 is silent.
+link_check_timeout_ms = 500

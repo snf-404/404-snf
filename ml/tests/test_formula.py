@@ -37,4 +37,3 @@ def test_features_are_bounded_for_extreme_but_plausible_inputs():
     )
     assert values[:2] == [2.0, 2.0]
     assert values[2] == 0.0
-

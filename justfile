@@ -32,6 +32,15 @@ test:
 build:
     csti build --manifest Consortium.toml
 
+# Installs the model, application, configuration and CM33 firmware, reloads the
+# coprocessor and starts the systemd unit. Flags pass through to the script; see
+# `tools/deploy.sh --help`. The board's address is deliberately not recorded in
+# this repository — pass it, or export SNF_TARGET.
+#
+# Put a built dist/ on a board and start it. `just deploy root@board.local`.
+deploy *ARGS:
+    tools/deploy.sh {{ ARGS }}
+
 # ── Machine learning (ml/) ───────────────────────────────────────────────────
 # Trained on the host with `uv`; the closed-form ridge solve is CPU-only. Only
 # the small `.onnx` crosses over.

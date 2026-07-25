@@ -56,7 +56,9 @@ def train(
     )
     penalty = torch.eye(design.shape[1], dtype=torch.float64) * ridge
     penalty[-1, -1] = 0.0
-    coefficients = torch.linalg.solve(design.T @ design + penalty, design.T @ y_logit[train_indices])
+    coefficients = torch.linalg.solve(
+        design.T @ design + penalty, design.T @ y_logit[train_indices]
+    )
 
     model = FatigueLinearModel(len(FEATURE_NAMES))
     with torch.no_grad():
@@ -68,7 +70,9 @@ def train(
         standardized = x_standardized.float()
         prediction = model(standardized)
     train_metrics = _metrics(prediction[train_indices], y_score[train_indices].float())
-    validation_metrics = _metrics(prediction[validation_indices], y_score[validation_indices].float())
+    validation_metrics = _metrics(
+        prediction[validation_indices], y_score[validation_indices].float()
+    )
     metadata = {
         "label_source": label_source,
         "data_rows": len(rows),

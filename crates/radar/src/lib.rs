@@ -11,11 +11,23 @@
 //! [`RadarStream`] (feature `serial`, on by default) is the same decoder behind
 //! a local `tokio-serial` port. It is what you want on a dev host with the
 //! sensor on USB, and it is not used in the on-target data path.
+//!
+//! The sensor's *second* UART — the 115 200-baud `mmwDemo:/>` CLI — is
+//! [`RadarCli`]. It is not optional: the IWR6843 boots idle and the data port
+//! stays silent until a profile ending in `sensorStart` has been sent there, so
+//! [`RadarCli::configure`] runs before [`RadarStream::open`].
 
+#[cfg(feature = "serial")]
+mod cli;
 mod decoder;
 mod indicators;
 mod parser;
 
+#[cfg(feature = "serial")]
+pub use cli::{
+    ConfigureReport, DEFAULT_CLI_BAUD_RATE, DEFAULT_COMMAND_TIMEOUT_MS, RadarCli, RadarCliConfig,
+    SensorProfile,
+};
 pub use decoder::{DEFAULT_MAX_PACKET_LENGTH, RadarDecoder};
 pub use indicators::{
     ActivityTrend, GrossActivity, IndicatorConfig, IndicatorEngine, IndicatorSnapshot, RadarRoi,
@@ -25,20 +37,44 @@ pub use indicators::{VitalRateEstimate, VitalStatus};
 #[cfg(feature = "vital-signs")]
 pub use parser::VitalSignsReading;
 pub use parser::{
-    FrameHeader, MAGIC_WORD, ParseError, RadarFrame, RadarPoint, RadarProtocol, parse_frame,
-    parse_frame_for,
+    FrameHeader, MAGIC_WORD, ParseError, ProcessingStats, RadarFrame, RadarPoint, RadarProtocol,
+    RangeProfile, TemperatureStats, parse_frame, parse_frame_for,
 };
 
-use std::{error::Error, fmt, io};
+use std::{error::Error, fmt, io, time::Duration};
 
 use parser::FRAME_HEADER_LEN;
 
-/// Serial, framing, or packet parsing failure.
+/// Serial, framing, packet parsing, or sensor-configuration failure.
 #[derive(Debug)]
 pub enum RadarError {
     Io(io::Error),
-    InvalidPacketLength { declared: usize, maximum: usize },
+    InvalidPacketLength {
+        declared: usize,
+        maximum: usize,
+    },
     Parse(ParseError),
+    /// A configuration profile could not be read, or held no commands.
+    Profile {
+        path: String,
+        error: io::Error,
+    },
+    /// The sensor's CLI answered a configuration command with an error. The run
+    /// stops here: a sensor started under a partially applied profile produces
+    /// frames that look plausible and mean something else.
+    CommandRejected {
+        command: String,
+        response: String,
+    },
+    /// A configuration command produced no `Done` in time.
+    CommandTimeout {
+        command: String,
+        timeout: Duration,
+    },
+    /// The CLI port reached end-of-stream part-way through a command.
+    CommandClosed {
+        command: String,
+    },
 }
 
 impl fmt::Display for RadarError {
@@ -50,6 +86,22 @@ impl fmt::Display for RadarError {
                 "radar packet declares invalid length {declared}; allowed range is {FRAME_HEADER_LEN}..={maximum}"
             ),
             Self::Parse(error) => write!(f, "radar packet parse error: {error}"),
+            Self::Profile { path, error } => {
+                write!(f, "radar configuration profile {path}: {error}")
+            }
+            Self::CommandRejected { command, response } => write!(
+                f,
+                "radar rejected configuration command `{command}`: {response}"
+            ),
+            Self::CommandTimeout { command, timeout } => write!(
+                f,
+                "radar configuration command `{command}` produced no `Done` within {} ms",
+                timeout.as_millis()
+            ),
+            Self::CommandClosed { command } => write!(
+                f,
+                "radar CLI port closed while running configuration command `{command}`"
+            ),
         }
     }
 }
@@ -57,9 +109,12 @@ impl fmt::Display for RadarError {
 impl Error for RadarError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Io(error) => Some(error),
+            Self::Io(error) | Self::Profile { error, .. } => Some(error),
             Self::Parse(error) => Some(error),
-            Self::InvalidPacketLength { .. } => None,
+            Self::InvalidPacketLength { .. }
+            | Self::CommandRejected { .. }
+            | Self::CommandTimeout { .. }
+            | Self::CommandClosed { .. } => None,
         }
     }
 }

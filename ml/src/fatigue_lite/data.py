@@ -32,7 +32,9 @@ def load_csv(path: Path) -> tuple[list[dict[str, str]], list[float], str]:
     return rows, labels, label_source
 
 
-def split_indices(rows: list[dict[str, str]], validation_fraction: float, seed: int) -> tuple[list[int], list[int]]:
+def split_indices(
+    rows: list[dict[str, str]], validation_fraction: float, seed: int
+) -> tuple[list[int], list[int]]:
     """Split whole subjects when subject_id is available; otherwise split rows."""
 
     rng = random.Random(seed)
@@ -45,8 +47,12 @@ def split_indices(rows: list[dict[str, str]], validation_fraction: float, seed: 
             max(1, round(len(unique_subjects) * validation_fraction)),
         )
         validation_subjects = set(unique_subjects[:validation_count])
-        train = [index for index, subject in enumerate(subjects) if subject not in validation_subjects]
-        validation = [index for index, subject in enumerate(subjects) if subject in validation_subjects]
+        train = [
+            index for index, subject in enumerate(subjects) if subject not in validation_subjects
+        ]
+        validation = [
+            index for index, subject in enumerate(subjects) if subject in validation_subjects
+        ]
     else:
         indices = list(range(len(rows)))
         rng.shuffle(indices)
@@ -56,4 +62,3 @@ def split_indices(rows: list[dict[str, str]], validation_fraction: float, seed: 
     if not train or not validation:
         raise ValueError("at least two rows are required for train/validation splitting")
     return train, validation
-

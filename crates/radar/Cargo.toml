@@ -10,14 +10,17 @@ authors.workspace = true
 
 [features]
 default = ["serial"]
-# Local `tokio-serial` transport (`RadarStream`). Bench/dev-host path only: on
-# target the CM33 owns USART6 and the CA35 pushes IPC chunks into `RadarDecoder`
-# directly, so the on-target build can drop tokio-serial entirely.
+# Local `tokio-serial` transport (`RadarStream`) plus the 115 200-baud
+# configuration CLI (`RadarCli`). Bench/dev-host path only: on target the CM33
+# owns USART6 and the CA35 pushes IPC chunks into `RadarDecoder` directly, so the
+# on-target build can drop tokio-serial entirely.
 serial = ["dep:tokio", "dep:tokio-serial"]
 vital-signs = []
 
 [dependencies]
-tokio        = { version = "1", features = ["rt", "macros", "sync", "io-util"], optional = true }
+# `time` is for the CLI handshake's per-command deadline; the data path itself
+# never waits on the clock.
+tokio        = { version = "1", features = ["rt", "macros", "sync", "io-util", "time"], optional = true }
 tokio-serial = { version = "5", optional = true }
 serde        = { version = "1", features = ["derive"] }
 

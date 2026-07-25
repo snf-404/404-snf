@@ -16,15 +16,17 @@ The device senses a person with a **TI IWR6843** mmWave radar, classifies
 
 ## Architecture
 
-The IWR6843 connects over its **USB virtual COM port**, so the radar is an
-ordinary Linux tty and the sensing pipeline is entirely on the CA35. The
-actuators are there too, because the board's RIF configuration — which this
+The IWR6843 connects over its **USB virtual COM port**, so both of its UARTs are
+ordinary Linux ttys and the sensing pipeline is entirely on the CA35: the sensor
+boots idle, `snf-radar` sends it a configuration profile over the 115 200-baud
+CLI port at start-up, and only then does the 921 600-baud data port stream TLVs.
+The actuators are there too, because the board's RIF configuration — which this
 project deliberately does **not** re-provision — reaches **TIM4/TIM5, the only
 PWM-capable timers that land on the 40-pin connector, from the AP alone**:
 
 ```
-        IWR6843 ──serial──►  CA35 (Linux, tokio)                 CM33 (embassy)
-                             ├─ snf-radar   (pure-Rust UART + TLV indicators)
+     IWR6843 ──cfg 115k2──►  CA35 (Linux, tokio)                 CM33 (embassy)
+            ◄──data 921k6──  ├─ snf-radar   (pure-Rust UART + TLV indicators)
                              ├─ snf-fatigue (ONNX via consortium-ort)
                              ├─ snf-ble     (BlueZ / bluer) ──BLE──► apps/lingguang
                              └─ snf-app  ◄── actuator IPC channel ──► snf-mcu
@@ -36,7 +38,9 @@ The CM33 owns USART6 — RIF reaches that port from the CM33 alone — and carri
 `no_std` TLV parser that reports fixed-size `RadarReport`s over the `radar` IPC
 channel, for a build where the sensor is wired to those pins instead of USB. With
 virtual COM there is nothing on USART6 to read, so `snf-app` only uses the
-channel as a start-up link check.
+channel as an **opt-in** start-up link check (`[mcu] link_check`, off by
+default): a CM33 that never answers is not a degraded board, and the CA35 half
+runs unchanged without it.
 
 Cross-core messaging uses consortium's typed IPC over shared memory, declared in
 [`Consortium.toml`](Consortium.toml) (`radar` channel; no `optee` endpoint, no
@@ -60,6 +64,7 @@ ceiling in the control loop. See
 | `apps/lingguang`      | React + TypeScript Lingguang flash app                                        |
 | `models/`             | 3D models (enclosure, bladder housings, radar mount)                          |
 | `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping                                      |
+| `tools/deploy.sh`     | put a built `dist/` on a board: model, app, config, CM33 reload, systemd unit |
 
 `crates/app` and `crates/mcu` are **excluded from the cargo workspace**: each
 `include!`s a `consortium.gen.rs` emitted by `csti build` and cross-compiles into
