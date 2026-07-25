@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useTranslation } from '@/i18n'
 import { normalizeAnalysisText, streamAnalysis, type AnalysisSnapshot } from '@/lib/aiAnalysis'
 
 export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
+  const { t, i18n } = useTranslation('translation')
   const [text, setText] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const controllerRef = useRef<AbortController | null>(null)
@@ -45,13 +47,14 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
       snapshotRef.current,
       (nextText) => {
         if (controller.signal.aborted) return
-        const normalized = normalizeAnalysisText(nextText)
+        const normalized = normalizeAnalysisText(nextText, i18n.resolvedLanguage)
         const latestQueued = displayQueue[displayQueue.length - 1]
         if (normalized === latestQueued) return
         displayQueue.push(normalized)
         if (displayTimerRef.current === null) drainDisplayQueue()
       },
       controller.signal,
+      i18n.resolvedLanguage,
     )
       .then(() => {
         streamFinished = true
@@ -69,10 +72,10 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
         displayTimerRef.current = null
         displayQueue.length = 0
         console.log('[AI analysis]', error)
-        setText('暂时无法生成分析，请稍后重试')
+        setText(t('aiInsight.error'))
         setStatus('error')
       })
-  }, [])
+  }, [i18n.resolvedLanguage, t])
 
   useEffect(() => {
     const timer = window.setTimeout(generate, 0)
@@ -113,16 +116,20 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
           <Sparkles size={16} strokeWidth={2} />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ color: '#17233D', fontSize: 14, fontWeight: 600 }}>智能承托建议</div>
-          <div style={{ marginTop: 1, color: '#8A97AA', fontSize: 10 }}>基于健康监测与气垫状态</div>
+          <div style={{ color: '#17233D', fontSize: 14, fontWeight: 600 }}>
+            {t('aiInsight.title')}
+          </div>
+          <div style={{ marginTop: 1, color: '#8A97AA', fontSize: 10 }}>
+            {t('aiInsight.subtitle')}
+          </div>
         </div>
         <Button
           type="button"
           data-testid="refresh-ai-analysis"
           variant="unstyled"
           size="unstyled"
-          aria-label="重新生成分析"
-          title="重新生成分析"
+          aria-label={t('aiInsight.refresh')}
+          title={t('aiInsight.refresh')}
           disabled={status === 'loading'}
           onClick={generate}
           style={{
@@ -153,7 +160,7 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
           lineHeight: 1.65,
         }}
       >
-        {text !== '' ? text : '正在结合心率、呼吸与体动数据生成建议…'}
+        {text !== '' ? text : t('aiInsight.loading')}
         {status === 'loading' && text !== '' && <span className="ai-insight-caret" />}
       </div>
     </Card>

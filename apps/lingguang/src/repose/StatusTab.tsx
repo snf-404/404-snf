@@ -11,7 +11,7 @@ import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
 import { AiInsightCard } from './AiInsightCard'
-import { DeskMatSVG, type MatState } from './DeskMatSVG'
+import { DeskMatStateImage, type MatVisualState } from './DeskMatStateImage'
 import { SensingDetailPage } from './SensingDetailPage'
 
 type Telemetry = ReturnType<typeof useSnfTelemetry>
@@ -167,8 +167,7 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
       style={{
         borderRadius: 24,
         overflow: 'hidden',
-        background:
-          'linear-gradient(162deg, rgba(240,247,255,0.90) 0%, rgba(225,238,255,0.85) 100%)',
+        background: '#FFFFFF',
         border: `1px solid rgba(70,100,160,0.10)`,
         marginBottom: 12,
         position: 'relative',
@@ -183,8 +182,7 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
           left: 0,
           right: 0,
           height: 80,
-          background:
-            'radial-gradient(ellipse at 50% 0%, rgba(158,187,255,0.22) 0%, transparent 70%)',
+          background: 'transparent',
           pointerEvents: 'none',
         }}
       />
@@ -213,7 +211,19 @@ function JointVisualCard({ onShowSensing }: { onShowSensing: () => void }) {
         </div>
       </div>
 
-      <svg viewBox="0 0 320 260" fill="none" style={{ width: '100%', display: 'block' }}>
+      <div style={{ height: 248, position: 'relative', overflow: 'hidden' }}>
+        <DeskMatStateImage
+          state="work"
+          alt={t('status.illustration.work')}
+          className="repose-state-image"
+        />
+      </div>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 320 260"
+        fill="none"
+        style={{ width: '100%', display: 'none' }}
+      >
         <defs>
           {/* Mat — ice blue, stays light */}
           <linearGradient id="jvMat" x1="0.5" y1="0" x2="0.5" y2="1">
@@ -517,8 +527,8 @@ function StateSummaryCard() {
           pointerEvents: 'none',
         }}
       />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               fontSize: 17,
@@ -539,13 +549,15 @@ function StateSummaryCard() {
         <div
           style={{
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            gap: 5,
-            paddingTop: 2,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            columnGap: 16,
+            rowGap: 6,
+            paddingTop: 10,
+            borderTop: `1px solid ${T.borderSub}`,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
             <motion.div
               style={{ width: 6, height: 6, borderRadius: '50%', background: T.brand }}
               animate={{ opacity: [0.5, 1, 0.5] }}
@@ -555,7 +567,7 @@ function StateSummaryCard() {
               {t('status.work.sensingNormal')}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.brandMid }} />
             <span style={{ fontSize: 11, color: T.brandMid, letterSpacing: '0.04em' }}>
               {t('status.work.flatMode')}
@@ -949,7 +961,7 @@ function FatiguePage({ onExit }: { onExit: () => void }) {
       <Card
         style={{
           borderRadius: 24,
-          background: T.cardBg,
+          background: '#FFFFFF',
           border: `1px solid ${T.border}`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
@@ -959,7 +971,11 @@ function FatiguePage({ onExit }: { onExit: () => void }) {
         }}
       >
         <div style={{ height: 168 }}>
-          <DeskMatSVG state="fatigue" />
+          <DeskMatStateImage
+            state="fatigue"
+            alt={t('status.illustration.fatigue')}
+            className="repose-state-image"
+          />
         </div>
       </Card>
 
@@ -968,7 +984,7 @@ function FatiguePage({ onExit }: { onExit: () => void }) {
           borderRadius: 16,
           padding: '14px 16px',
           marginBottom: 12,
-          background: T.cardBg,
+          background: '#FFFFFF',
           border: `1px solid ${T.border}`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
@@ -1037,7 +1053,7 @@ function FatiguePage({ onExit }: { onExit: () => void }) {
 
 // ─── Generic rest state page ───────────────────────────────────────────────────
 interface RestPageCfg {
-  matState: MatState
+  matState: MatVisualState
   autoLabel: TranslationKey
   title: TranslationKey
   subtitle: TranslationKey
@@ -1091,7 +1107,7 @@ function RestPage({ cfg, onExit }: { cfg: RestPageCfg; onExit: () => void }) {
         style={{
           borderRadius: 24,
           overflow: 'hidden',
-          background: T.cardBg,
+          background: '#FFFFFF',
           border: cfg.isError === true ? `1px solid rgba(200,60,60,0.22)` : `1px solid ${T.border}`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
@@ -1107,7 +1123,7 @@ function RestPage({ cfg, onExit }: { cfg: RestPageCfg; onExit: () => void }) {
               position: 'absolute',
               inset: 0,
               borderRadius: 24,
-              background: 'rgba(200,60,60,0.04)',
+              background: 'transparent',
               pointerEvents: 'none',
             }}
             animate={{ opacity: [0.4, 0.9, 0.4] }}
@@ -1115,7 +1131,11 @@ function RestPage({ cfg, onExit }: { cfg: RestPageCfg; onExit: () => void }) {
           />
         )}
         <div style={{ height: 168 }}>
-          <DeskMatSVG state={cfg.matState} />
+          <DeskMatStateImage
+            state={cfg.matState}
+            alt={t(STATE_LABELS[cfg.matState])}
+            className="repose-state-image"
+          />
         </div>
       </Card>
 

@@ -7,8 +7,8 @@ import { I18nProvider, useTranslation } from '@/i18n'
 import { getSnfErrorTranslation } from '@/lib/snfErrors'
 import { BottomNav, type Tab } from '@/repose/BottomNav'
 import { DeviceTab } from '@/repose/DeviceTab'
-import { RecordTab } from '@/repose/RecordTab'
 import { StatusTab, type StatusState } from '@/repose/StatusTab'
+import { TrendsTab } from '@/repose/TrendsTab'
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>('status')
@@ -41,7 +41,7 @@ function AppContent() {
 
   return (
     <div id="container" className="repose-stage">
-      <div className="repose-phone">
+      <div className="repose-app-shell">
         <div className="repose-content">
           <AnimatePresence mode="wait">
             <motion.div
@@ -59,7 +59,7 @@ function AppContent() {
                   onStateChange={setStatusState}
                 />
               )}
-              {activeTab === 'record' && <RecordTab />}
+              {activeTab === 'trends' && <TrendsTab />}
               {activeTab === 'device' && (
                 <DeviceTab
                   telemetry={telemetry}

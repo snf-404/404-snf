@@ -135,7 +135,11 @@ function RecordCard({ record, delay }: { record: RecordItem; delay: number }) {
   )
 }
 
-export function RecordTab() {
+interface RecordTabProps {
+  embedded?: boolean
+}
+
+export function RecordTab({ embedded = false }: RecordTabProps) {
   const { t } = useTranslation('translation')
   const summaries: Array<{ labelKey: TranslationKey; value: string }> = [
     { labelKey: 'records.todayCount', value: t('common.minutesCount', { count: 2 }) },
@@ -143,10 +147,12 @@ export function RecordTab() {
     { labelKey: 'records.peakState', value: t('records.deepWrap') },
   ]
   return (
-    <div className="h-full overflow-y-auto px-5 pb-[72px]">
-      <div className="py-5 pb-4">
-        <h2 className="m-0 text-[30px] font-medium text-[#17233d]">{t('records.title')}</h2>
-      </div>
+    <div className={embedded ? '' : 'h-full overflow-y-auto px-5 pb-[72px]'}>
+      {!embedded && (
+        <div className="py-5 pb-4">
+          <h2 className="m-0 text-[30px] font-medium text-[#17233d]">{t('records.title')}</h2>
+        </div>
+      )}
       <div className="mb-3.5 grid grid-cols-3 gap-2">
         {summaries.map((item) => (
           <Card

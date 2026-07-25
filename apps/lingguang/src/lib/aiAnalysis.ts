@@ -10,6 +10,8 @@ export type AnalysisSnapshot = {
   processorTemperature: number | null
 }
 
+export type AnalysisLocale = 'zh-CN' | 'en-US'
+
 type StreamChatEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'error'; message: string }
@@ -21,14 +23,36 @@ type StreamChat = (options: {
   onEvent: (event: StreamChatEvent) => void
 }) => Promise<{ content: string }>
 
-const SYSTEM_PROMPT =
-  '你是带健康监测功能的智能气垫助手。请结合当前感知数据，给出坐姿、承托、休息或气垫调节方面的简短建议。必须只输出普通文本，禁止使用任何Markdown、标题、列表或符号格式，总共不超过50个汉字。不要诊断疾病。'
+const SYSTEM_PROMPTS: Record<AnalysisLocale, string> = {
+  'zh-CN':
+    '你是带健康监测功能的智能气垫助手。请结合当前感知数据，给出坐姿、承托、休息或气垫调节方面的简短建议。必须只输出普通文本，禁止使用任何Markdown、标题、列表或符号格式，总共不超过50个汉字。不要诊断疾病。',
+  'en-US':
+    'You are an intelligent support-surface assistant. Use the current sensing data to give one concise suggestion about posture, support, rest, or surface adjustment. Output plain English text only, without Markdown, headings, lists, or diagnosis. Keep it under 35 words.',
+}
 
 function formatValue(value: number | null, suffix: string, digits = 0): string {
   return value === null ? '暂无' : `${value.toFixed(digits)}${suffix}`
 }
 
-export function buildAnalysisPrompt(snapshot: AnalysisSnapshot): string {
+export function buildAnalysisPrompt(
+  snapshot: AnalysisSnapshot,
+  locale: AnalysisLocale = 'zh-CN',
+): string {
+  if (locale === 'en-US') {
+    return [
+      `Device: ${snapshot.connected ? 'connected' : 'disconnected'}`,
+      `Heart rate: ${snapshot.heartRate === null ? 'unavailable' : `${snapshot.heartRate.toFixed(0)} BPM`}`,
+      `Respiration: ${snapshot.respirationRate === null ? 'unavailable' : `${snapshot.respirationRate.toFixed(1)} RPM`}`,
+      `Heart confidence: ${String(snapshot.heartConfidence)}%`,
+      `Respiration confidence: ${String(snapshot.respirationConfidence)}%`,
+      `Signal quality: ${snapshot.qualityLabel}`,
+      `Motion interference: ${snapshot.motionLabel}`,
+      `Presence: ${snapshot.hasSpatialData ? 'detected' : 'not detected'}`,
+      `Device temperature: ${snapshot.processorTemperature === null ? 'unavailable' : `${snapshot.processorTemperature.toFixed(1)}°C`}`,
+      'Surface mode: flat work mode',
+      'Generate one brief analysis and suggestion from the current data.',
+    ].join('\n')
+  }
   return [
     `设备：${snapshot.connected ? '已连接' : '未连接'}`,
     `心率：${formatValue(snapshot.heartRate, '次/分')}`,
@@ -44,13 +68,13 @@ export function buildAnalysisPrompt(snapshot: AnalysisSnapshot): string {
   ].join('\n')
 }
 
-export function normalizeAnalysisText(value: string): string {
+export function normalizeAnalysisText(value: string, locale: AnalysisLocale = 'zh-CN'): string {
   const plainText = value
     .replace(/```[\s\S]*?```/g, '')
     .replace(/[*_`#>[\]]/g, '')
     .replace(/^\s*[-+•]\s*/gm, '')
     .replace(/^\s*\d+[.)、]\s*/gm, '')
-    .replace(/\s+/g, '')
+    .replace(/\s+/g, locale === 'en-US' ? ' ' : '')
     .trim()
   return Array.from(plainText).slice(0, 100).join('')
 }
@@ -166,10 +190,11 @@ export async function streamAnalysis(
   snapshot: AnalysisSnapshot,
   onText: (text: string) => void,
   signal?: AbortSignal,
+  locale: AnalysisLocale = 'zh-CN',
 ): Promise<void> {
   const messages: Array<{ role: 'system' | 'user'; content: string }> = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: buildAnalysisPrompt(snapshot) },
+    { role: 'system', content: SYSTEM_PROMPTS[locale] },
+    { role: 'user', content: buildAnalysisPrompt(snapshot, locale) },
   ]
   const streamChat = (window.lingguang.ai as { streamChat?: StreamChat }).streamChat
 

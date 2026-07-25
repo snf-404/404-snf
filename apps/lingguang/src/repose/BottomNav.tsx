@@ -1,10 +1,10 @@
-import { Activity, Bluetooth, History, type LucideIcon } from 'lucide-react'
+import { Activity, Bluetooth, ChartNoAxesCombined, type LucideIcon } from 'lucide-react'
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 
-export type Tab = 'status' | 'record' | 'device'
+export type Tab = 'status' | 'trends' | 'device'
 
 interface BottomNavProps {
   activeTab: Tab
@@ -13,12 +13,12 @@ interface BottomNavProps {
 
 const tabs: { id: Tab; labelKey: TranslationKey; icon: LucideIcon }[] = [
   { id: 'status', labelKey: 'nav.status', icon: Activity },
-  { id: 'record', labelKey: 'nav.records', icon: History },
+  { id: 'trends', labelKey: 'nav.trends', icon: ChartNoAxesCombined },
   { id: 'device', labelKey: 'nav.device', icon: Bluetooth },
 ]
 
 function isTab(value: string): value is Tab {
-  return value === 'status' || value === 'record' || value === 'device'
+  return value === 'status' || value === 'trends' || value === 'device'
 }
 
 export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
