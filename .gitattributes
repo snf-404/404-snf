@@ -1,0 +1,4 @@
+# Generated peripheral access crates (chiptool output). Exclude from GitHub
+# Linguist language statistics so the machine-generated register definitions do
+# not dominate the repository's language breakdown.
+cube/** linguist-generated=true
