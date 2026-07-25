@@ -12,13 +12,16 @@ signal indicators. No C/C++ compiler, native shim, or TI host SDK is used.
 > to USART6 instead. That path is not the default; see
 > [`crates/mcu`](../mcu/README.md).
 
-The default build supports the factory Out-of-Box point-cloud firmware. TI
-Vital Signs support is deliberately opt-in because it requires different
-firmware on the radar:
+The default build targets **TI Vital Signs With People Tracking**, which is the
+firmware 404-snf's sensors are flashed with and what the profile in `profiles/`
+configures. The factory Out-of-Box point-cloud demo is still parsed — for
+replaying older captures, and for a sensor flashed back — but it is no longer
+what anything defaults to, and using it means supplying a factory `.cfg` of your
+own.
 
 ```bash
-cargo test -p snf-radar
-cargo test -p snf-radar --features vital-signs
+cargo test -p snf-radar                       # vital signs, the deployed path
+cargo test -p snf-radar --no-default-features # out-of-box parsing alone
 ```
 
 ## The two UARTs
@@ -57,10 +60,10 @@ let mut radar = RadarStream::open(RadarConfig::default())?;
 ```
 
 With no `profile_path`, `RadarCli::configure` sends the profile compiled into
-this crate, [`profiles/out-of-box-6843isk.cfg`](profiles/out-of-box-6843isk.cfg)
-— the factory Out-of-Box demo at 10 Hz, static clutter retained (the
-gross-activity indicator measures radial speed and wants the still body
-present). Any other firmware needs its own file.
+this crate, [`profiles/vital_signs_ISK_2m.cfg`](profiles/vital_signs_ISK_2m.cfg)
+— Vital Signs With People Tracking on an IWR6843ISK mounted at 2 m and tilted
+15°, 90 ms frames (11.1 Hz), tracker boundary 1.5 m either side and 2 m deep.
+Any other firmware, the factory demo included, needs its own file.
 
 A profile is read from a TI `.cfg` file **or** from a pasted `mmwDemo:/>`
 session transcript; in a transcript only the text after each prompt is taken as
@@ -88,8 +91,8 @@ at 25%. Inputs are scored from 1 to 5.
 | Rank | Indicator | Impact | Dev ease | Deploy ease | Score | Status |
 |---:|---|---:|---:|---:|---:|---|
 | 1 | Gross activity trend | 4 | 5 | 5 | 4.50 | Implemented |
-| 2 | Respiration rate | 5 | 4 | 3 | 4.25 | Implemented, opt-in |
-| 3 | Heart rate | 5 | 4 | 3 | 4.25 | Implemented, opt-in |
+| 2 | Respiration rate | 5 | 4 | 3 | 4.25 | Implemented, deployed |
+| 3 | Heart rate | 5 | 4 | 3 | 4.25 | Implemented, deployed |
 | 4 | Micro-movements | 3 | 3 | 5 | 3.50 | Deferred |
 | 5 | Head/torso pose drift | 4 | 2 | 3 | 3.25 | Deferred |
 | 6 | Postural sway | 4 | 2 | 2 | 3.00 | Deferred |
@@ -107,41 +110,7 @@ clutter removal and CFAR configuration.
 
 ## Firmware and deployment modes
 
-### Factory Out-of-Box firmware
-
-The firmware normally shipped on an IWR6843ISK provides Cartesian detected
-points and side information. It supports the dot graph and gross-activity
-indicator. It does **not** calculate heart or respiration rates.
-
-Use the default build and protocol:
-
-```rust,no_run
-use snf_radar::{
-    IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarProtocol, RadarStream,
-};
-use std::time::Instant;
-
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-// The built-in profile is this firmware's, so the defaults suffice.
-RadarCli::configure(&RadarCliConfig::default()).await?;
-
-let config = RadarConfig {
-    data_port: "/dev/ttyUSB1".into(),
-    protocol: RadarProtocol::OutOfBox,
-    ..RadarConfig::default()
-};
-let mut radar = RadarStream::open(config)?;
-let mut indicators = IndicatorEngine::default();
-
-while let Some(frame) = radar.next_frame().await? {
-    let snapshot = indicators.update(Instant::now(), &frame);
-    println!("{:?}", snapshot.activity);
-}
-# Ok(())
-# }
-```
-
-### TI Vital Signs firmware
+### TI Vital Signs firmware — the deployed one
 
 Heart rate and respiration require TI Radar Toolbox's **Vital Signs With People
 Tracking** firmware. For IWR6843ISK, use the externally supplied binary named:
@@ -163,11 +132,10 @@ then:
 1. Put the IWR6843ISK into its documented flashing mode.
 2. Flash the ISK binary with TI UniFlash.
 3. Return the board to functional mode and reset it.
-4. Point `RadarCliConfig::profile_path` (`radar.profile_path` in `Repose.toml`)
-   at the matching ISK `.cfg` from the same example. The built-in profile
-   configures the *factory* demo and must not be sent to this firmware; `snf-app`
-   refuses to start rather than send it, and the pairing is why the protocol is
-   never auto-detected.
+4. Nothing to point at: the profile shipped in `profiles/` is this firmware's,
+   so `RadarCliConfig::profile_path` (`radar.profile_path` in `Repose.toml`)
+   stays unset. Supply a file there only to override the mount geometry or the
+   tracker boundaries.
 5. Read the data UART at the baud rate that configuration selects (normally
    921600).
 
@@ -175,29 +143,18 @@ Follow the quick-start instructions shipped with the exact Radar Toolbox
 release for jumper and UniFlash details. Do not use the AOP binary or AOP
 configuration on an ISK board.
 
-Enable and explicitly select the protocol:
-
-```toml
-snf-radar = { path = "../radar", features = ["vital-signs"] }
-```
+The defaults already select this protocol:
 
 ```rust,no_run
-use snf_radar::{
-    IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarProtocol, RadarStream,
-};
+use snf_radar::{IndicatorEngine, RadarCli, RadarCliConfig, RadarConfig, RadarStream};
 use std::time::Instant;
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-// This firmware needs the vital-signs example's own `.cfg`.
-RadarCli::configure(&RadarCliConfig {
-    profile_path: Some("/opt/snf/vital-signs.cfg".into()),
-    ..RadarCliConfig::default()
-})
-.await?;
+// The built-in profile is this firmware's, so the defaults suffice.
+RadarCli::configure(&RadarCliConfig::default()).await?;
 
 let mut radar = RadarStream::open(RadarConfig {
     data_port: "/dev/ttyUSB1".into(),
-    protocol: RadarProtocol::VitalSigns,
     ..RadarConfig::default()
 })?;
 let mut indicators = IndicatorEngine::default();
@@ -215,9 +172,39 @@ while let Some(frame) = radar.next_frame().await? {
 # }
 ```
 
+### Factory Out-of-Box firmware
+
+Still parsed, but no longer the default and not what any sensor here runs. It
+provides Cartesian detected points, side information, the range profile, DSP
+stats and temperatures — enough for the dot graph and the gross-activity
+indicator, but it does **not** calculate heart or respiration rates. Select it
+explicitly at both ends, and supply a factory `.cfg`, since the built-in profile
+is the vital-signs one:
+
+```rust,no_run
+use snf_radar::{RadarCli, RadarCliConfig, RadarConfig, RadarProtocol, RadarStream};
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+RadarCli::configure(&RadarCliConfig {
+    profile_path: Some("/opt/snf/out-of-box.cfg".into()),
+    ..RadarCliConfig::default()
+})
+.await?;
+
+let mut radar = RadarStream::open(RadarConfig {
+    protocol: RadarProtocol::OutOfBox,
+    ..RadarConfig::default()
+})?;
+# let _ = &mut radar;
+# Ok(())
+# }
+```
+
 The protocol is never auto-detected: both demos share the same magic word and
 40-byte header, so automatic selection can silently give a plausible but wrong
-interpretation.
+interpretation. `snf-app` refuses to start when `protocol = "out-of-box"` is
+asked for without a `profile_path`, because that pairing would configure the
+sensor one way and read it another.
 
 ## Supported wire formats
 
@@ -261,8 +248,37 @@ Out-of-Box parsing supports:
 - Forward-compatible skipping of other TLVs, and packet padding of any content
   (see below).
 
-With `vital-signs`, parsing additionally supports:
+Vital-signs parsing (the default) supports:
 
+- TLV 1010: the group tracker's target list, 112 bytes each — track ID, position,
+  velocity and acceleration in the same axes as `RadarPoint`, the 4×4 error
+  covariance kept raw, gating gain and confidence. The track ID is what a vital
+  record's `subject_id` refers to, so `RadarFrame::target(id)` is what turns a
+  heart rate into a heart rate *for the person standing there*.
+- TLV 1011: one byte per point cloud point, in point order, saying which track
+  took it. `253`/`254`/`255` are not track IDs but reasons — weak SNR, outside
+  the boundary box, judged noise — and are decoded into `PointAssociation`
+  rather than flattened. With no TLV 1011 present nothing is assumed: no
+  association is not "all mine".
+
+  **It describes the previous frame's cloud.** The group tracker runs a frame
+  behind the detection layer, so the list arriving with frame *N* indexes frame
+  *N−1*'s points. Measured on a live IWR6843ISK, across 13 consecutive frames:
+
+  ```text
+    frame hdr numObj 1020 points 1011 len  matches
+     8707         16          16        1  PREVIOUS frame
+     8708          4           4       16  PREVIOUS frame
+     8709          6           6        4  PREVIOUS frame
+
+  1011 length == this frame's cloud: 0;  == previous frame's cloud: 13
+  ```
+
+  Zipping it with the same frame's `points` is therefore wrong in a way that
+  still type-checks and still produces ordered, plausible output — so the field
+  is named `previous_point_associations` and the pairing lives in
+  `RadarFrame::tracked_points(&previous, id)`, which takes the earlier frame as
+  an argument rather than reaching for the wrong one.
 - TLV 1020: five `f32` compression units followed by 8-byte spherical points.
   Elevation and azimuth are signed 8-bit values, Doppler is signed 16-bit, and
   range/SNR are unsigned 16-bit. Values are scaled and converted into `x`
@@ -283,7 +299,7 @@ Complete captured packets can also be decoded without opening a port:
 use snf_radar::{parse_frame_for, RadarProtocol};
 
 # fn example(packet: &[u8]) -> Result<(), snf_radar::ParseError> {
-let frame = parse_frame_for(RadarProtocol::OutOfBox, packet)?;
+let frame = parse_frame_for(RadarProtocol::VitalSigns, packet)?;
 println!("{} dots", frame.points.len());
 # Ok(())
 # }

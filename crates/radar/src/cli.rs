@@ -60,8 +60,10 @@ pub const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 5_000;
 /// The prompt the CLI writes before every echoed command.
 const PROMPT: &str = "mmwDemo:/>";
 
-/// Factory Out-of-Box profile for the IWR6843ISK, shipped in this crate.
-const BUILTIN_PROFILE: &str = include_str!("../profiles/out-of-box-6843isk.cfg");
+/// The profile shipped in this crate: Vital Signs With People Tracking for the
+/// IWR6843ISK at a 2 m mount. It is **not** the factory demo's — see
+/// [`SensorProfile::builtin`].
+const BUILTIN_PROFILE: &str = include_str!("../profiles/vital_signs_ISK_2m.cfg");
 
 const READ_BUFFER_LEN: usize = 512;
 
@@ -77,8 +79,9 @@ pub struct RadarCliConfig {
     pub cli_port: String,
     /// Baud rate of the CLI UART; [`DEFAULT_CLI_BAUD_RATE`].
     pub baud_rate: u32,
-    /// A TI `.cfg` profile to send instead of the built-in Out-of-Box one.
-    /// Required for any firmware other than the factory demo.
+    /// A TI `.cfg` profile to send instead of the built-in one. Required for any
+    /// firmware other than Vital Signs With People Tracking — the factory
+    /// out-of-box demo included.
     #[serde(default)]
     pub profile_path: Option<String>,
     /// How long one command may take to answer `Done`.
@@ -117,8 +120,14 @@ pub struct SensorProfile {
 }
 
 impl SensorProfile {
-    /// The Out-of-Box profile compiled into this crate
-    /// (`profiles/out-of-box-6843isk.cfg`).
+    /// The profile compiled into this crate
+    /// (`profiles/vital_signs_ISK_2m.cfg`): Vital Signs With People Tracking on
+    /// an IWR6843ISK mounted at 2 m, 90 ms frames.
+    ///
+    /// It pairs with [`RadarProtocol::VitalSigns`](crate::RadarProtocol), not
+    /// the factory demo — sending it to out-of-box firmware, or reading its
+    /// output with the out-of-box parser, gives a sensor configured for one
+    /// thing and read as another.
     pub fn builtin() -> Self {
         Self::parse(BUILTIN_PROFILE)
     }

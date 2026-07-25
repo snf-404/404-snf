@@ -11,6 +11,14 @@ ESP32-C5 只声明 `VITALS` capability：呼吸率有效，心率为 unavailable
 `MOTION_CONTAMINATED` 和 `activity_confidence` 表达。它不声明或发送 Fatigue、Pose、
 Point Cloud；客户端必须继续按 capability bits 工作，以便与 Rust 雷达实现共用。
 
+**可互换性要求。** ESP32-C5 固件（`apps/esp32/main/snf_ble.c`）和 CA35 的 Rust 实现
+（`crates/ble` + `crates/bridge`）是同一个协议的两个对等实现。同一份客户端代码必须能
+连接任意一台设备，且只通过 capability bits 和消息状态位来解释差异——不能靠嗅探设备型号，
+也不能靠试探。因此除了字节布局，两边的**行为**也必须一致：哪些请求在 ATT 层被拒、
+哪些回 Control Response、结果码怎么选、Read 在还没有数据时返回什么、snapshot 由谁发送。
+本文档中带「必须／不得」的条款是规范性的，两个实现都要满足；有分歧时以本文档为准，
+而不是以任一实现的现状为准。
+
 ## 1. 目标与非目标
 
 目标：
@@ -47,16 +55,21 @@ Point Cloud；客户端必须继续按 capability bits 工作，以便与 Rust �
 
 v1 使用一组真正的私有 128-bit UUID。当前占位 UUID 尚未实际部署，因此 v1 不保留其兼容性。
 
-| 名称                  | UUID                                   | 属性                          | 用途                       |
-| --------------------- | -------------------------------------- | ----------------------------- | -------------------------- |
-| SNF Telemetry Service | `7b9f0001-6b44-4d2a-9f36-4040534e4600` | Primary service               | 所有 SNF 遥测              |
-| Protocol Info         | `7b9f0001-6b44-4d2a-9f36-4040534e4601` | Read                          | 版本、能力和限制           |
-| Stream Control        | `7b9f0001-6b44-4d2a-9f36-4040534e4602` | Write with response, Indicate | 开关流、设置速率、命令响应 |
-| Device Status         | `7b9f0001-6b44-4d2a-9f36-4040534e4603` | Read, Notify                  | 运行时间、丢帧和错误       |
-| Vitals                | `7b9f0001-6b44-4d2a-9f36-4040534e4604` | Read, Notify                  | 心率、呼吸率和运动质量     |
-| Fatigue               | `7b9f0001-6b44-4d2a-9f36-4040534e4605` | Read, Notify                  | 可选疲劳模型输出           |
-| Pose                  | `7b9f0001-6b44-4d2a-9f36-4040534e4606` | Notify                        | 跟踪人体的 3D 关节点       |
-| Point Cloud           | `7b9f0001-6b44-4d2a-9f36-4040534e4607` | Notify                        | 降采样 3D 点云             |
+| 名称                  | UUID                                   | 属性                          | 必需                | 用途                       |
+| --------------------- | -------------------------------------- | ----------------------------- | ------------------- | -------------------------- |
+| SNF Telemetry Service | `7b9f0001-6b44-4d2a-9f36-4040534e4600` | Primary service               | 是                  | 所有 SNF 遥测              |
+| Protocol Info         | `7b9f0001-6b44-4d2a-9f36-4040534e4601` | Read                          | 是                  | 版本、能力和限制           |
+| Stream Control        | `7b9f0001-6b44-4d2a-9f36-4040534e4602` | Write with response, Indicate | 是                  | 开关流、设置速率、命令响应 |
+| Device Status         | `7b9f0001-6b44-4d2a-9f36-4040534e4603` | Read, Notify                  | 是                  | 运行时间、丢帧和错误       |
+| Vitals                | `7b9f0001-6b44-4d2a-9f36-4040534e4604` | Read, Notify                  | `VITALS` 时必需     | 心率、呼吸率和运动质量     |
+| Fatigue               | `7b9f0001-6b44-4d2a-9f36-4040534e4605` | Read, Notify                  | `FATIGUE` 时必需    | 可选疲劳模型输出           |
+| Pose                  | `7b9f0001-6b44-4d2a-9f36-4040534e4606` | Notify                        | `POSE_3D` 时必需    | 跟踪人体的 3D 关节点       |
+| Point Cloud           | `7b9f0001-6b44-4d2a-9f36-4040534e4607` | Notify                        | `POINT_CLOUD_3D` 时 | 降采样 3D 点云             |
+
+设备**不得**注册它没有能力位的 characteristic：ESP32-C5 只注册前四个，CA35 注册前五个。
+客户端因此必须把「characteristic 不存在」和「capability 位为 0」当作同一件事处理，
+两者都只表示该流不可用，不是连接失败。发现 characteristic 时必须允许缺失，
+不能因为 Fatigue 或 Point Cloud 不存在就中止连接流程。
 
 建议广播：
 
@@ -170,7 +183,7 @@ Flags：
 |     12 | `u32` | motion_energy_um2_s2     | 平均径向速度平方乘 `1_000_000`  |
 |     16 | `u16` | rms_speed_mm_s           | RMS 径向速度，mm/s              |
 |     18 | `u16` | moving_fraction_q15      | 运动点占比，`0..32767`          |
-|     20 | `u16` | range_bin                | TI vital result 的 range bin    |
+|     20 | `u16` | range_bin                | range bin；无此概念为 `0xffff`  |
 |     22 | `i16` | breathing_deviation_q8_8 | vendor unit x 256               |
 
 Status flags：
@@ -187,6 +200,10 @@ Status flags：
 
 状态优先于数值。例如 `MOTION_CONTAMINATED` 时可以发送最近稳定 BPM 并设置遥测头的
 `STALE`；UI 必须明确显示质量告警，不能把该值当作新的可靠测量。
+
+没有 TI vital result 的实现（例如 ESP32-C5 的 CSI 方案）没有 range bin 可报，
+必须发送 `0xffff` 而不是看起来合理的 `0`。同理，`heart_rate_x100` 无效时必须是
+`0xffff` 且不置 `HEART_VALID`，绝不能发 `0`。
 
 ## 8. Fatigue payload (`0x21`)
 
@@ -290,6 +307,21 @@ Point format 1 每点固定 8 字节：
 |     16 | `i16` | processor_temp_x100_c | 未提供为 `0x7fff`              |
 |     18 | `u16` | reserved              | `0`                            |
 
+### 首次 Read
+
+Read 一个遥测 characteristic（Status、Vitals、Fatigue）**必须**返回一条完整合法的消息：
+16 字节头加上该 payload 的完整固定长度。设备尚未产生任何测量时也不例外，此时返回
+「还没有数据」的取值，而不是零长度 value：
+
+- Vitals：全部数值取 unavailable sentinel，`status_flags` 置 `WARMING_UP`，不置任何
+  `*_VALID`。
+- Fatigue：`status_flags` 置 `WARMING_UP`，不置 `VALID`。
+- Device Status：计数器为 `0`，`active_streams` 为当前基线。
+
+零长度 value 会让按 §14 一连接就 Read 的客户端拿到无法解码的缓冲区，而同样的客户端
+代码在另一台设备上却正常工作。ESP32-C5 每次 Read 都从当前样本现场生成 payload，
+CA35 在首次 publish 之前返回上述预置值，两者对客户端等价。
+
 ## 12. Stream Control
 
 客户端使用 Write with response。请求头固定 8 字节，后接 opcode payload：
@@ -325,6 +357,45 @@ Opcodes：
 Stream mask bits：bit 0 status、bit 1 vitals、bit 2 fatigue、bit 3 pose、bit 4 point cloud。
 设备可以降低客户端请求的速率，但不得静默提高。实际值通过 Control Response 返回。
 
+### 请求校验与结果码
+
+只有**请求头**损坏才在 ATT 层拒绝写入，返回 `Invalid Attribute Value Length`：
+
+1. 总长度小于 8 字节；
+2. `protocol_major` 不等于 `1`；
+3. `payload_len` 与实际 body 长度不相等（多于或少于都算）。
+
+除此之外的一切请求——包括未知 opcode——都必须回一条 Control Response。设备**不得**
+静默丢弃一个头部合法的请求：客户端会一直等待一个永远不到的 indication，而同一份客户端
+代码在另一台设备上立刻收到答复。
+
+头部 `reserved` 字段读取后必须忽略（§4）。不得因为它非零而拒绝请求，否则将来使用该
+字段的 minor 版本客户端就无法与 v1.0 设备通信。
+
+各 opcode 的结果码：
+
+| Opcode             | `INVALID` (2)                                  | `UNSUPPORTED` (1)                         | `SUCCESS` (0)     |
+| ------------------ | ---------------------------------------------- | ----------------------------------------- | ----------------- |
+| `SET_STREAMS`      | payload 不是 8 字节；`vitals_hz` 不在 `1..=10` | mask 含设备无能力的流（支持的部分仍生效） | 其余              |
+| `SET_SUBJECT`      | payload 不是 2 字节                            | 非 `0xffff` 且无 `MULTI_SUBJECT` 能力     | `0xffff` 或已支持 |
+| `REQUEST_SNAPSHOT` | payload 不是 2 字节                            | mask 含设备无能力的流（支持的部分仍发送） | 其余              |
+| `PING`             | payload 超过 16 字节                           | —                                         | 原样回显          |
+| 未定义             | —                                              | 一律 `UNSUPPORTED`                        | —                 |
+
+补充规则：
+
+- 校验先于生效。返回 `INVALID` 的 `SET_STREAMS` **不得**修改任何配置，避免出现只应用了
+  一半的状态，也避免两个实现对「一半」的划分产生分歧。
+- `vitals_hz` 无论 vitals 位是否置位都要校验，两个实现因此拒绝完全相同的字节。
+- `pose_hz`、`point_cloud_hz`、`max_points` 为 `0` 表示「保持设备当前暂存值不变」；
+  只有在对应流被开启时才校验它们的范围。
+- `UNSUPPORTED` 不代表请求被拒绝：能支持的部分已经生效，该码只说明有一部分被丢弃。
+  客户端应以 `effective_*` 字段为准，而不是假定请求原样生效。
+- 设备正在发送上一条 Control Response 时**可以**回 `BUSY` (3)。客户端必须能处理 `BUSY`
+  并重试，不能假定它不会出现。
+- Control Response 的 `opcode` 字段必须回显客户端实际写入的 opcode，未知 opcode 也一样，
+  这样客户端才能把响应与请求对上。
+
 Control Response (`0x40`) payload：
 
 | Offset | Type  | 字段                                                                     |
@@ -339,6 +410,13 @@ Control Response (`0x40`) payload：
 |      9 | `u8`  | effective_max_points                                                     |
 
 使用 Indicate 发送响应，保证命令结果得到 ATT 层确认。
+
+### Snapshot 的投递
+
+`REQUEST_SNAPSHOT` 的 Control Response 只报告哪些流可以服务，真正的数据必须另外通过对应
+characteristic 的 notification 发出，并在遥测头置 `SNAPSHOT`。只对 `请求 mask 与当前
+active_streams 的交集`发送：snapshot 不能复活客户端已经关掉的流。已关闭的流不产生数据但
+仍返回 `SUCCESS`。设备尚无测量结果时，发送 §11「首次 Read」定义的同一份预置值。
 
 ## 13. 默认配置与带宽预算
 

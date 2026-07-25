@@ -23,6 +23,10 @@ const PROCESSING_STATS: u32 = 6;
 const DETECTED_POINTS_SIDE_INFO: u32 = 7;
 const TEMPERATURE_STATS: u32 = 9;
 #[cfg(feature = "vital-signs")]
+const TRACKER_TARGET_LIST: u32 = 1010;
+#[cfg(feature = "vital-signs")]
+const TRACKER_TARGET_INDEX: u32 = 1011;
+#[cfg(feature = "vital-signs")]
 const COMPRESSED_SPHERICAL_POINTS: u32 = 1020;
 #[cfg(feature = "vital-signs")]
 const VITAL_SIGNS: u32 = 0x410;
@@ -32,16 +36,31 @@ const COMPRESSED_POINT_UNITS_LEN: usize = 20;
 const COMPRESSED_POINT_LEN: usize = 8;
 #[cfg(feature = "vital-signs")]
 const VITAL_SIGNS_LEN: usize = 136;
+/// `tid` + 9 state floats + a 4×4 covariance + gain + confidence.
+#[cfg(feature = "vital-signs")]
+const TRACKER_TARGET_LEN: usize = 112;
+/// Track-index sentinels: the values above the largest track ID that TI uses to
+/// say *why* a point was not associated rather than *with what*.
+#[cfg(feature = "vital-signs")]
+const TRACK_INDEX_WEAK_SNR: u8 = 253;
+#[cfg(feature = "vital-signs")]
+const TRACK_INDEX_OUTSIDE_BOUNDARY: u8 = 254;
+#[cfg(feature = "vital-signs")]
+const TRACK_INDEX_NOISE: u8 = 255;
 
 /// UART payload protocol selected by the firmware flashed on the radar.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RadarProtocol {
-    /// Factory/out-of-box mmWave demo with Cartesian point TLVs.
-    #[default]
+    /// Factory/out-of-box mmWave demo with Cartesian point TLVs. Retained for
+    /// replaying older captures and for a sensor that has been flashed back;
+    /// 404-snf's own sensors run the vital-signs firmware.
+    #[cfg_attr(not(feature = "vital-signs"), default)]
     OutOfBox,
-    /// Radar Toolbox Vital Signs With People Tracking demo.
+    /// Radar Toolbox Vital Signs With People Tracking demo — what this project
+    /// deploys, and so the default whenever the feature is compiled in.
     #[cfg(feature = "vital-signs")]
+    #[default]
     VitalSigns,
 }
 
@@ -145,6 +164,102 @@ impl TemperatureStats {
     }
 }
 
+/// One person held by the group tracker, from TLV 1010.
+///
+/// Axes match [`RadarPoint`]: `x` lateral, `y` outward from the antenna plane,
+/// `z` vertical, all relative to the sensor and in metres. The tracker reports a
+/// filtered state, not a measurement — a target coasts through frames where the
+/// point cloud gave it nothing, which is exactly what makes
+/// [`id`](Self::id) usable as a subject identity across frames.
+#[cfg(feature = "vital-signs")]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TrackedTarget {
+    /// Track ID. The same person keeps it until the tracker drops the track,
+    /// and it is what [`VitalSignsReading::subject_id`] refers to.
+    pub id: u32,
+    /// Position, in metres.
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    /// Velocity, in metres per second.
+    pub velocity_x: f32,
+    pub velocity_y: f32,
+    pub velocity_z: f32,
+    /// Acceleration, in metres per second squared.
+    pub acceleration_x: f32,
+    pub acceleration_y: f32,
+    pub acceleration_z: f32,
+    /// The 4×4 error covariance matrix, row-major, as the tracker reports it.
+    /// Kept raw: it is the filter's own uncertainty state, not a quantity this
+    /// crate interprets.
+    pub error_covariance: [f32; 16],
+    /// Gating function gain.
+    pub gating_gain: f32,
+    /// The tracker's confidence in this track, `0.0..=1.0`.
+    pub confidence: f32,
+}
+
+#[cfg(feature = "vital-signs")]
+impl TrackedTarget {
+    /// Ground-plane distance from the sensor, in metres.
+    pub fn range_m(&self) -> f32 {
+        self.x.hypot(self.y)
+    }
+
+    /// Speed irrespective of direction, in metres per second.
+    pub fn speed_mps(&self) -> f32 {
+        (self.velocity_x * self.velocity_x
+            + self.velocity_y * self.velocity_y
+            + self.velocity_z * self.velocity_z)
+            .sqrt()
+    }
+}
+
+/// What the tracker did with one point-cloud point, from TLV 1011.
+///
+/// One entry per point, in point order — but of the **previous** frame's cloud,
+/// not this frame's. See
+/// [`previous_point_associations`](RadarFrame::previous_point_associations).
+///
+/// The three rejection reasons are distinct values in TI's wire format and are
+/// kept distinct here: "no target" and "outside the boundary box" are different
+/// answers when you are deciding whether the sensor is aimed correctly.
+#[cfg(feature = "vital-signs")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PointAssociation {
+    /// Assigned to the track with this ID.
+    Target(u8),
+    /// Not assigned: the point's SNR was too weak.
+    WeakSnr,
+    /// Not assigned: the point fell outside the configured boundary box.
+    OutsideBoundary,
+    /// Not assigned: the tracker judged the point noise.
+    Noise,
+}
+
+#[cfg(feature = "vital-signs")]
+impl PointAssociation {
+    /// The track this point belongs to, if any.
+    pub fn target_id(self) -> Option<u8> {
+        match self {
+            Self::Target(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "vital-signs")]
+impl From<u8> for PointAssociation {
+    fn from(value: u8) -> Self {
+        match value {
+            TRACK_INDEX_WEAK_SNR => Self::WeakSnr,
+            TRACK_INDEX_OUTSIDE_BOUNDARY => Self::OutsideBoundary,
+            TRACK_INDEX_NOISE => Self::Noise,
+            id => Self::Target(id),
+        }
+    }
+}
+
 /// One raw result from TI's Vital Signs With People Tracking firmware.
 ///
 /// The waveform arrays are unitless visualizer values. Use `heart_rate_bpm`
@@ -177,6 +292,30 @@ pub struct RadarFrame {
     /// Radar subsystem temperatures, when supplied alongside stats.
     #[serde(default)]
     pub temperature_stats: Option<TemperatureStats>,
+    /// People the group tracker is holding (TLV 1010).
+    ///
+    /// The tracker runs a frame behind the detection layer, so this is its state
+    /// after consuming the *previous* frame's cloud. That costs one frame of
+    /// latency — 90 ms on the shipped profile — and does not affect using
+    /// [`TrackedTarget::id`] as a subject identity.
+    #[cfg(feature = "vital-signs")]
+    #[serde(default)]
+    pub targets: Vec<TrackedTarget>,
+    /// What the tracker did with each point of the **previous** frame's cloud,
+    /// in that cloud's order (TLV 1011). Empty when the firmware did not send it.
+    ///
+    /// The lag is the same one that puts [`targets`](Self::targets) a frame
+    /// behind, and it is measurable on the wire: across 13 consecutive frames
+    /// from an IWR6843ISK this list's length matched the previous frame's point
+    /// count every time and its own frame's not once. Pairing it with
+    /// [`points`](Self::points) of the same frame therefore attributes each
+    /// point to whatever the point in that slot happened to be last frame —
+    /// plausible, ordered, and wrong. [`tracked_points`](Self::tracked_points)
+    /// takes the previous frame explicitly so the pairing cannot be made by
+    /// accident.
+    #[cfg(feature = "vital-signs")]
+    #[serde(default)]
+    pub previous_point_associations: Vec<PointAssociation>,
     /// Raw vendor vital records, when the opt-in firmware protocol is enabled.
     #[cfg(feature = "vital-signs")]
     pub vital_signs: Vec<VitalSignsReading>,
@@ -191,6 +330,37 @@ impl RadarFrame {
 
     pub fn num_detected_points(&self) -> usize {
         self.points.len()
+    }
+
+    /// The tracked person a vital-signs record belongs to.
+    ///
+    /// `VitalSignsReading::subject_id` is a track ID, so a reading only says
+    /// *where* the person is once TLV 1010 has been paired back to it.
+    #[cfg(feature = "vital-signs")]
+    pub fn target(&self, id: u32) -> Option<&TrackedTarget> {
+        self.targets.iter().find(|target| target.id == id)
+    }
+
+    /// Points of `previous` that this frame's tracker output assigned to `id`.
+    ///
+    /// `previous` must be the frame immediately before this one — the
+    /// association list arriving here describes *that* cloud, which is why the
+    /// caller has to supply it rather than this method reaching for
+    /// [`points`](Self::points). Yields nothing when TLV 1011 is absent, rather
+    /// than pretending every point belongs to the target: the association is the
+    /// firmware's judgement and this crate does not reconstruct it.
+    #[cfg(feature = "vital-signs")]
+    pub fn tracked_points<'a>(
+        &'a self,
+        previous: &'a RadarFrame,
+        id: u8,
+    ) -> impl Iterator<Item = &'a RadarPoint> {
+        previous
+            .points
+            .iter()
+            .zip(&self.previous_point_associations)
+            .filter(move |(_, association)| **association == PointAssociation::Target(id))
+            .map(|(point, _)| point)
     }
 }
 
@@ -294,6 +464,10 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
     let mut processing_stats = None;
     let mut temperature_stats = None;
     #[cfg(feature = "vital-signs")]
+    let mut targets = Vec::new();
+    #[cfg(feature = "vital-signs")]
+    let mut previous_point_associations = Vec::new();
+    #[cfg(feature = "vital-signs")]
     let mut vital_signs = Vec::new();
     let mut unknown_tlv_types = Vec::new();
     let mut offset = FRAME_HEADER_LEN;
@@ -325,6 +499,11 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
             RadarProtocol::VitalSigns => match tlv_type {
                 COMPRESSED_SPHERICAL_POINTS => {
                     parse_compressed_points(payload, point_count, &mut points)?;
+                }
+                TRACKER_TARGET_LIST => parse_tracked_targets(payload, &mut targets)?,
+                TRACKER_TARGET_INDEX => {
+                    previous_point_associations
+                        .extend(payload.iter().copied().map(PointAssociation::from));
                 }
                 VITAL_SIGNS => vital_signs.push(parse_vital_signs(payload)?),
                 unknown => unknown_tlv_types.push(unknown),
@@ -363,9 +542,54 @@ pub fn parse_frame_for(protocol: RadarProtocol, frame: &[u8]) -> Result<RadarFra
         processing_stats,
         temperature_stats,
         #[cfg(feature = "vital-signs")]
+        targets,
+        #[cfg(feature = "vital-signs")]
+        previous_point_associations,
+        #[cfg(feature = "vital-signs")]
         vital_signs,
         unknown_tlv_types,
     })
+}
+
+/// Decode TLV 1010 — zero or more 112-byte tracker states.
+#[cfg(feature = "vital-signs")]
+fn parse_tracked_targets(
+    payload: &[u8],
+    targets: &mut Vec<TrackedTarget>,
+) -> Result<(), ParseError> {
+    // A trailing partial record would mean the stride is wrong, and reading a
+    // target out of a mis-strided buffer produces coordinates that look real.
+    if !payload.len().is_multiple_of(TRACKER_TARGET_LEN) {
+        return Err(ParseError::InvalidTlvLength {
+            tlv_type: TRACKER_TARGET_LIST,
+            declared: payload.len(),
+            expected: payload.len().next_multiple_of(TRACKER_TARGET_LEN),
+        });
+    }
+
+    targets.reserve(payload.len() / TRACKER_TARGET_LEN);
+    for raw in payload.chunks_exact(TRACKER_TARGET_LEN) {
+        let mut error_covariance = [0.0; 16];
+        for (index, cell) in error_covariance.iter_mut().enumerate() {
+            *cell = f32_at(raw, 40 + index * 4);
+        }
+        targets.push(TrackedTarget {
+            id: u32_at(raw, 0),
+            x: f32_at(raw, 4),
+            y: f32_at(raw, 8),
+            z: f32_at(raw, 12),
+            velocity_x: f32_at(raw, 16),
+            velocity_y: f32_at(raw, 20),
+            velocity_z: f32_at(raw, 24),
+            acceleration_x: f32_at(raw, 28),
+            acceleration_y: f32_at(raw, 32),
+            acceleration_z: f32_at(raw, 36),
+            error_covariance,
+            gating_gain: f32_at(raw, 104),
+            confidence: f32_at(raw, 108),
+        });
+    }
+    Ok(())
 }
 
 fn parse_range_profile(payload: &[u8]) -> Result<RangeProfile, ParseError> {
@@ -770,6 +994,160 @@ mod tests {
         assert_eq!(parsed.vital_signs[0].breath_waveform[14], 114.0);
     }
 
+    /// Every field of the 112-byte tracker state, at its own offset, with signed
+    /// and fractional values that a wrong stride or a swapped pair would move.
+    #[cfg(feature = "vital-signs")]
+    #[test]
+    fn parses_the_tracker_target_list() {
+        let first = target_payload(
+            3,
+            [-1.25, 2.5, 0.75],
+            [0.5, -0.25, 0.125],
+            [-0.5, 0.25, 0.0],
+        );
+        let second = target_payload(9, [0.0, 4.0, 1.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+        let mut payload = first;
+        payload.extend_from_slice(&second);
+        let frame = make_frame(11, 0, &[(TRACKER_TARGET_LIST, &payload)]);
+
+        let parsed = parse_frame_for(RadarProtocol::VitalSigns, &frame).unwrap();
+        assert_eq!(parsed.targets.len(), 2);
+
+        let target = &parsed.targets[0];
+        assert_eq!(target.id, 3);
+        assert_eq!((target.x, target.y, target.z), (-1.25, 2.5, 0.75));
+        assert_eq!(
+            (target.velocity_x, target.velocity_y, target.velocity_z),
+            (0.5, -0.25, 0.125)
+        );
+        assert_eq!(
+            (
+                target.acceleration_x,
+                target.acceleration_y,
+                target.acceleration_z
+            ),
+            (-0.5, 0.25, 0.0)
+        );
+        // The covariance is written as 0.0..16.0, so a shifted read lands on the
+        // wrong index rather than on a plausible-looking zero.
+        assert_eq!(target.error_covariance[0], 0.0);
+        assert_eq!(target.error_covariance[15], 15.0);
+        assert_eq!(target.gating_gain, 42.0);
+        assert_eq!(target.confidence, 0.875);
+
+        assert_eq!(parsed.targets[1].id, 9);
+        assert_eq!(parsed.target(9).unwrap().y, 4.0);
+        assert!(parsed.target(4).is_none());
+        assert!(parsed.unknown_tlv_types.is_empty());
+
+        assert!((parsed.targets[0].range_m() - 1.25_f32.hypot(2.5)).abs() < 1e-6);
+        assert!((parsed.targets[1].speed_mps()).abs() < 1e-6);
+    }
+
+    /// A stride that does not divide the payload means the record layout is not
+    /// what this build believes, and every field read after it is fiction.
+    #[cfg(feature = "vital-signs")]
+    #[test]
+    fn rejects_a_partial_tracker_target() {
+        let frame = make_frame(1, 0, &[(TRACKER_TARGET_LIST, &[0; TRACKER_TARGET_LEN + 8])]);
+        assert!(matches!(
+            parse_frame_for(RadarProtocol::VitalSigns, &frame),
+            Err(ParseError::InvalidTlvLength {
+                tlv_type: TRACKER_TARGET_LIST,
+                declared: 120,
+                expected: 224,
+            })
+        ));
+    }
+
+    /// TLV 1011 is one byte per point, in point order, with three sentinels that
+    /// say why a point was rejected rather than which track took it — and it
+    /// describes the PREVIOUS frame's cloud, which is what
+    /// [`RadarFrame::tracked_points`] pairs it against.
+    #[cfg(feature = "vital-signs")]
+    #[test]
+    fn pairs_associations_with_the_previous_frames_points() {
+        // Frame 12 carries five points; frame 13 carries a different number, so
+        // a same-frame zip could not even produce these results by accident.
+        let earlier_points = compressed_point_payload(
+            [0.01, 0.01, 0.1, 0.01, 0.5],
+            &[
+                (0, 0, 0, 100, 20),
+                (0, 0, 0, 110, 20),
+                (0, 0, 0, 120, 20),
+                (0, 0, 0, 130, 20),
+                (0, 0, 0, 140, 40),
+            ],
+        );
+        let previous = parse_frame_for(
+            RadarProtocol::VitalSigns,
+            &make_frame(12, 5, &[(COMPRESSED_SPHERICAL_POINTS, &earlier_points)]),
+        )
+        .unwrap();
+
+        let later_points =
+            compressed_point_payload([0.01, 0.01, 0.1, 0.01, 0.5], &[(0, 0, 0, 200, 60)]);
+        let index = [
+            0,
+            7,
+            TRACK_INDEX_WEAK_SNR,
+            TRACK_INDEX_OUTSIDE_BOUNDARY,
+            TRACK_INDEX_NOISE,
+        ];
+        let current = parse_frame_for(
+            RadarProtocol::VitalSigns,
+            &make_frame(
+                13,
+                1,
+                &[
+                    (COMPRESSED_SPHERICAL_POINTS, &later_points),
+                    (TRACKER_TARGET_INDEX, &index),
+                ],
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            current.previous_point_associations,
+            [
+                PointAssociation::Target(0),
+                PointAssociation::Target(7),
+                PointAssociation::WeakSnr,
+                PointAssociation::OutsideBoundary,
+                PointAssociation::Noise,
+            ]
+        );
+        // The list is as long as the PREVIOUS cloud, not this frame's.
+        assert_eq!(
+            current.previous_point_associations.len(),
+            previous.points.len()
+        );
+        assert_eq!(current.points.len(), 1);
+        assert_eq!(current.previous_point_associations[0].target_id(), Some(0));
+        assert_eq!(current.previous_point_associations[2].target_id(), None);
+
+        // Track 7 took the previous cloud's second point — the 40-SNR one is the
+        // fifth, so picking it here would mean the zip ran off the wrong list.
+        let assigned: Vec<_> = current.tracked_points(&previous, 7).collect();
+        assert_eq!(assigned.len(), 1);
+        assert_eq!(assigned[0].snr_db, Some(10.0));
+        assert_eq!(current.tracked_points(&previous, 200).count(), 0);
+        assert!(current.unknown_tlv_types.is_empty());
+    }
+
+    /// Without TLV 1011 nothing is assumed: no association is not "all mine".
+    #[cfg(feature = "vital-signs")]
+    #[test]
+    fn without_an_index_no_point_belongs_to_any_target() {
+        let points = compressed_point_payload([0.01, 0.01, 0.1, 0.01, 0.5], &[(0, 0, 0, 100, 20)]);
+        let frame = make_frame(1, 1, &[(COMPRESSED_SPHERICAL_POINTS, &points)]);
+
+        let parsed = parse_frame_for(RadarProtocol::VitalSigns, &frame).unwrap();
+        assert_eq!(parsed.points.len(), 1);
+        assert!(parsed.previous_point_associations.is_empty());
+        assert_eq!(parsed.tracked_points(&parsed, 0).count(), 0);
+    }
+
     #[cfg(feature = "vital-signs")]
     #[test]
     fn rejects_malformed_vital_record() {
@@ -862,6 +1240,29 @@ mod tests {
             payload.extend_from_slice(&range.to_le_bytes());
             payload.extend_from_slice(&snr.to_le_bytes());
         }
+        payload
+    }
+
+    /// One 112-byte tracker record. The covariance is filled with `0.0..16.0` so
+    /// a misaligned read is visible rather than plausible.
+    #[cfg(feature = "vital-signs")]
+    fn target_payload(
+        id: u32,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        acceleration: [f32; 3],
+    ) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(TRACKER_TARGET_LEN);
+        payload.extend_from_slice(&id.to_le_bytes());
+        for value in position.into_iter().chain(velocity).chain(acceleration) {
+            payload.extend_from_slice(&value.to_le_bytes());
+        }
+        for cell in 0..16 {
+            payload.extend_from_slice(&(cell as f32).to_le_bytes());
+        }
+        payload.extend_from_slice(&42.0_f32.to_le_bytes());
+        payload.extend_from_slice(&0.875_f32.to_le_bytes());
+        debug_assert_eq!(payload.len(), TRACKER_TARGET_LEN);
         payload
     }
 

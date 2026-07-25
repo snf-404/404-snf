@@ -9,7 +9,11 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["serial"]
+# `vital-signs` is on by default: the deployed sensors run Radar Toolbox's Vital
+# Signs With People Tracking firmware, and the profile shipped in `profiles/` is
+# that demo's. The feature still exists so a build that only replays out-of-box
+# captures can drop the extra TLVs.
+default = ["serial", "vital-signs"]
 # Local `tokio-serial` transport (`RadarStream`) plus the 115 200-baud
 # configuration CLI (`RadarCli`). Bench/dev-host path only: on target the CM33
 # owns USART6 and the CA35 pushes IPC chunks into `RadarDecoder` directly, so the

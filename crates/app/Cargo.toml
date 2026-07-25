@@ -22,9 +22,12 @@ path = "src/main.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Internal crates.
 snf-shared  = { path = "../shared" }
-# `serial` is on by default: the IWR6843 reaches this board over its USB virtual
-# COM port, so the radar is a Linux tty and `RadarStream` reads it directly.
-snf-radar   = { path = "../radar", features = ["vital-signs"] }
+# `serial` and `vital-signs` are both on by default: the IWR6843 reaches this
+# board over its USB virtual COM port, so the radar is a Linux tty that
+# `RadarStream` reads directly, and the sensors are flashed with Radar Toolbox's
+# Vital Signs With People Tracking firmware. Named explicitly so a change to the
+# crate's defaults cannot quietly change what this binary parses.
+snf-radar   = { path = "../radar", features = ["serial", "vital-signs"] }
 snf-ble     = { path = "../ble" }
 # `ort` turns on real ONNX inference. It is off by default in `snf-fatigue` so
 # that crate stays checkable on a macOS dev host; this is the build that has an

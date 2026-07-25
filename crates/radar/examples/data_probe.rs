@@ -14,7 +14,7 @@
 
 use std::{env, process::ExitCode, time::Instant};
 
-use snf_radar::{IndicatorEngine, RadarConfig, RadarStream};
+use snf_radar::{IndicatorEngine, RadarConfig, RadarProtocol, RadarStream};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
@@ -26,9 +26,22 @@ async fn main() -> ExitCode {
         .next()
         .and_then(|count| count.parse().ok())
         .unwrap_or(10);
+    // The protocol is never guessed: both demos share the magic word and the
+    // 40-byte header, so the wrong one reads plausible nonsense.
+    let protocol = match arguments.next().as_deref() {
+        None => RadarProtocol::default(),
+        Some("out-of-box") => RadarProtocol::OutOfBox,
+        #[cfg(feature = "vital-signs")]
+        Some("vital-signs") => RadarProtocol::VitalSigns,
+        Some(other) => {
+            eprintln!("data_probe: unknown protocol {other:?}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     let mut radar = match RadarStream::open(RadarConfig {
         data_port: port.clone(),
+        protocol,
         ..RadarConfig::default()
     }) {
         Ok(radar) => radar,
@@ -42,6 +55,10 @@ async fn main() -> ExitCode {
     let mut indicators = IndicatorEngine::default();
     let mut seen = 0;
     let mut errors = 0;
+    // Kept because the tracker's association list refers to it, not to the frame
+    // it arrives in.
+    #[cfg(feature = "vital-signs")]
+    let mut previous: Option<snf_radar::RadarFrame> = None;
     while seen < wanted {
         match radar.next_frame().await {
             Ok(Some(frame)) => {
@@ -93,6 +110,60 @@ async fn main() -> ExitCode {
                             temperatures.report_valid,
                         );
                     }
+                }
+                #[cfg(feature = "vital-signs")]
+                for target in &frame.targets {
+                    // The association list describes the previous frame's cloud,
+                    // so the point count needs that frame in hand.
+                    let assigned = previous
+                        .as_ref()
+                        .map(|earlier| frame.tracked_points(earlier, target.id as u8).count());
+                    println!(
+                        "    target {} — ({:.2}, {:.2}, {:.2}) m, range {:.2} m, speed {:.2} m/s, confidence {:.2}, {} point(s)",
+                        target.id,
+                        target.x,
+                        target.y,
+                        target.z,
+                        target.range_m(),
+                        target.speed_mps(),
+                        target.confidence,
+                        assigned.map_or_else(|| "?".to_string(), |count| count.to_string()),
+                    );
+                }
+                #[cfg(feature = "vital-signs")]
+                if !frame.previous_point_associations.is_empty() {
+                    let unassigned = frame
+                        .previous_point_associations
+                        .iter()
+                        .filter(|association| association.target_id().is_none())
+                        .count();
+                    println!(
+                        "    associations — {} for the previous frame's {} points, {} unassigned",
+                        frame.previous_point_associations.len(),
+                        previous.as_ref().map_or_else(
+                            || "?".to_string(),
+                            |earlier| earlier.points.len().to_string()
+                        ),
+                        unassigned,
+                    );
+                }
+                #[cfg(feature = "vital-signs")]
+                for reading in &frame.vital_signs {
+                    println!(
+                        "    vitals — subject {} at range bin {}, heart {:.1} bpm, breath {:.1} bpm, breath deviation {:.3}",
+                        reading.subject_id,
+                        reading.range_bin,
+                        reading.heart_rate_bpm,
+                        reading.breathing_rate_bpm,
+                        reading.breathing_deviation,
+                    );
+                }
+                if !frame.unknown_tlv_types.is_empty() {
+                    println!("    unknown tlv types: {:?}", frame.unknown_tlv_types);
+                }
+                #[cfg(feature = "vital-signs")]
+                {
+                    previous = Some(frame);
                 }
             }
             Ok(None) => {

@@ -58,10 +58,11 @@ cli_baud_rate = 115200
 configure_on_connect = true
 
 # A TI `.cfg` profile to send instead of the built-in one. The built-in profile
-# (`crates/radar/profiles/out-of-box-6843isk.cfg`, compiled into the binary)
-# configures the FACTORY out-of-box demo at 10 Hz; `protocol = "vital-signs"`
-# requires a file here, because a profile from the vital-signs example is the
-# only thing that makes that firmware stream what this build would parse.
+# (`crates/radar/profiles/vital_signs_ISK_2m.cfg`, compiled into the binary)
+# configures Vital Signs With People Tracking on an ISK at a 2 m mount, 90 ms
+# frames — which is what these sensors are flashed with, so nothing is needed
+# here. `protocol = "out-of-box"` DOES require a file, because the factory demo
+# only streams what this build parses if it was configured by a factory profile.
 #
 # Both a plain `.cfg` and a pasted `mmwDemo:/>` session transcript are accepted.
 # profile_path = "/opt/snf/radar.cfg"
@@ -71,9 +72,14 @@ configure_on_connect = true
 cli_timeout_ms = 5000
 
 # Must match the firmware currently flashed on the sensor:
-#   "out-of-box"  — factory mmWave demo, Cartesian point TLVs
-#   "vital-signs" — Radar Toolbox Vital Signs With People Tracking demo
-protocol = "out-of-box"
+#   "vital-signs" — Radar Toolbox Vital Signs With People Tracking demo, what
+#                   these boards run and what the built-in profile configures
+#   "out-of-box"  — factory mmWave demo, Cartesian point TLVs; needs its own
+#                   `profile_path` above
+#
+# It is never auto-detected: both demos share the magic word and the 40-byte
+# header, so the wrong choice reads plausible nonsense rather than failing.
+protocol = "vital-signs"
 
 # Hard allocation bound for a declared UART packet, in bytes.
 max_packet_length = 1048576

@@ -561,6 +561,10 @@ mod tests {
             processing_stats: None,
             temperature_stats: None,
             #[cfg(feature = "vital-signs")]
+            targets: Vec::new(),
+            #[cfg(feature = "vital-signs")]
+            previous_point_associations: Vec::new(),
+            #[cfg(feature = "vital-signs")]
             vital_signs: Vec::new(),
             unknown_tlv_types: Vec::new(),
         }

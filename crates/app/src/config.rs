@@ -124,14 +124,15 @@ pub struct RadarSection {
     /// wiring. Turn it off only when something else owns the CLI port — a bench
     /// running the mmWave Demo Visualizer against the same sensor.
     pub configure_on_connect: bool,
-    /// A TI `.cfg` profile to send instead of the built-in Out-of-Box one. The
-    /// built-in profile matches the factory demo only, so any other firmware —
-    /// vital signs included — needs a file here.
+    /// A TI `.cfg` profile to send instead of the built-in one. The built-in
+    /// profile is the Vital Signs With People Tracking demo's, so any other
+    /// firmware — the factory out-of-box demo included — needs a file here.
     pub profile_path: Option<String>,
     /// How long one configuration command may take to answer `Done`.
     pub cli_timeout_ms: u64,
-    /// Must match the firmware flashed on the sensor: `"out-of-box"` or
-    /// `"vital-signs"`.
+    /// Must match the firmware flashed on the sensor: `"vital-signs"`, which is
+    /// what these boards run, or `"out-of-box"` for one flashed back to the
+    /// factory demo.
     pub protocol: RadarProtocol,
     /// Hard allocation bound for a declared UART packet.
     pub max_packet_length: usize,
@@ -403,14 +404,15 @@ impl ReposeConfig {
             if self.radar.cli_timeout_ms == 0 {
                 return Err("radar.cli_timeout_ms must be non-zero".to_string());
             }
-            // The built-in profile is the factory demo's. Sending it to vital
-            // signs firmware would configure a sensor that then streams TLVs
-            // this build would try to read as the other protocol.
-            if self.radar.protocol == RadarProtocol::VitalSigns && self.radar.profile_path.is_none()
-            {
+            // The built-in profile configures Vital Signs With People Tracking.
+            // Sending it to a sensor whose output is then read as the factory
+            // demo's gives a sensor configured for one thing and parsed as
+            // another: `numDetectedObj` against no TLV 1, and the tracker's
+            // 1010/1011/1020/1040 all discarded as unknown.
+            if self.radar.protocol == RadarProtocol::OutOfBox && self.radar.profile_path.is_none() {
                 return Err(
-                    "radar.protocol = \"vital-signs\" needs radar.profile_path: the built-in \
-                     profile configures the factory out-of-box demo"
+                    "radar.protocol = \"out-of-box\" needs radar.profile_path: the built-in \
+                     profile configures the Vital Signs With People Tracking demo"
                         .to_string(),
                 );
             }
@@ -669,20 +671,24 @@ mod tests {
         assert!(parse_str("[mcu]\nlink_check_timeout_ms = 0\n").is_ok());
     }
 
-    /// The built-in profile configures the factory demo, so the other firmware
-    /// has to bring its own — silently starting the sensor in the wrong mode
-    /// would produce TLVs the selected parser cannot read.
+    /// The built-in profile configures Vital Signs With People Tracking, which
+    /// is what these sensors run — so that combination needs nothing extra, and
+    /// it is the *other* firmware that has to bring its own profile. Starting
+    /// the sensor in one mode and parsing it as the other produces TLVs the
+    /// selected parser cannot read.
     #[test]
-    fn vital_signs_needs_an_explicit_profile() {
+    fn out_of_box_needs_an_explicit_profile() {
+        assert_eq!(RadarSection::default().protocol, RadarProtocol::VitalSigns);
+        assert!(parse_str("[radar]\nprotocol = \"vital-signs\"\n").is_ok());
         assert!(matches!(
-            parse_str("[radar]\nprotocol = \"vital-signs\"\n"),
+            parse_str("[radar]\nprotocol = \"out-of-box\"\n"),
             Err(ConfigError::Invalid { .. })
         ));
         assert!(
             parse_str(
                 "[radar]\n\
-                 protocol = \"vital-signs\"\n\
-                 profile_path = \"/opt/snf/vital-signs.cfg\"\n"
+                 protocol = \"out-of-box\"\n\
+                 profile_path = \"/opt/snf/out-of-box.cfg\"\n"
             )
             .is_ok()
         );

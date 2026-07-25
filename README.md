@@ -86,7 +86,8 @@ Host checks run natively on macOS; anything Linux-specific (the CA35 app's
 container.
 
 ```bash
-# Host-checkable libraries (radar vitals + fatigue ONNX are feature-gated off by default).
+# Host-checkable libraries. Radar vital signs are on by default (the sensors are
+# flashed with that firmware); fatigue ONNX inference is still feature-gated off.
 cargo check --workspace
 
 # Repository-level JavaScript tooling (Vite+).

@@ -481,8 +481,15 @@ static int handle_control_write(struct ble_gatt_access_ctxt *ctxt)
     if (ble_hs_mbuf_to_flat(ctxt->om, request, sizeof(request), &request_len) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
+    /*
+     * Only a malformed header fails the write; everything else is answered with
+     * a Control Response.  The reserved field at [6] is deliberately not
+     * checked: PROTOCOL.md §4 requires receivers to ignore reserved bytes, so
+     * rejecting a non-zero one would break against a later minor version that
+     * starts using it.
+     */
     if (request_len < 8U || request[0] != SNF_PROTOCOL_MAJOR ||
-        get_u16(&request[6]) != 0U || get_u16(&request[4]) != request_len - 8U) {
+        get_u16(&request[4]) != request_len - 8U) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
     const uint8_t opcode = request[1];

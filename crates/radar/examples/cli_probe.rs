@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! cli_probe /dev/ttyUSB0                  # sensorStop + flushCfg only
-//! cli_probe /dev/ttyUSB0 --builtin        # the whole built-in Out-of-Box profile
+//! cli_probe /dev/ttyUSB0 --builtin        # the whole built-in vital-signs profile
 //! cli_probe /dev/ttyUSB0 vital-signs.cfg  # a profile from a file
 //! ```
 //!

@@ -36,6 +36,11 @@ pub const COORDINATE_FRAME_XRIGHT_YOUT_ZUP: u8 = 1;
 pub const RATE_UNAVAILABLE: u16 = 0xffff;
 /// Sentinel for an unknown subject / tracking id.
 pub const SUBJECT_UNKNOWN: u16 = 0xffff;
+/// Sentinel for a `range_bin` the device cannot report (`PROTOCOL.md` §7).
+///
+/// A device without a TI vital-signs result — the ESP32-C5 CSI build, for one —
+/// has no range bin to publish and must send this rather than a plausible `0`.
+pub const RANGE_BIN_UNAVAILABLE: u16 = 0xffff;
 
 /// Builds a v1 SNF Telemetry UUID from the low 16 bits of the base
 /// `7b9f0001-6b44-4d2a-9f36-4040534e46xx` (`PROTOCOL.md` §3). All SNF
@@ -241,6 +246,26 @@ pub struct DeviceStatus {
 }
 
 impl DeviceStatus {
+    /// The status a Read must return before the application has published
+    /// anything: zero uptime, zero counters, no battery or temperature.
+    ///
+    /// A telemetry Read may never return an empty value (`PROTOCOL.md` §11) —
+    /// the ESP32-C5 firmware synthesises a full payload on every read, so a
+    /// client that reads on connect must get a decodable message from either
+    /// device.
+    pub fn initial(active_streams: u16) -> Self {
+        Self {
+            uptime_s: 0,
+            active_streams,
+            last_error: 0,
+            dropped_pose_frames: 0,
+            dropped_point_frames: 0,
+            radar_gap_count: 0,
+            battery_mv: BATTERY_MV_UNAVAILABLE,
+            processor_temp_x100_c: TEMP_UNAVAILABLE,
+        }
+    }
+
     /// Encode the fixed 20-byte payload (no telemetry header).
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::with_capacity(DEVICE_STATUS_LEN);
@@ -290,6 +315,29 @@ pub struct Vitals {
 }
 
 impl Vitals {
+    /// The vitals a Read must return before the first estimate exists: every
+    /// value at its unavailable sentinel and `WARMING_UP` set.
+    ///
+    /// Matches the ESP32-C5 firmware, whose sample starts `warming_up = true`,
+    /// so a client reading on connect sees "warming up" rather than an empty
+    /// value or a fabricated `0 bpm` (`PROTOCOL.md` §2, §7, §11).
+    pub fn warming_up() -> Self {
+        Self {
+            subject_id: SUBJECT_UNKNOWN,
+            status_flags: vitals_flags::WARMING_UP,
+            heart_rate_x100: RATE_UNAVAILABLE,
+            respiration_rate_x100: RATE_UNAVAILABLE,
+            heart_confidence: 0,
+            respiration_confidence: 0,
+            activity_confidence: 0,
+            motion_energy_um2_s2: 0,
+            rms_speed_mm_s: 0,
+            moving_fraction_q15: 0,
+            range_bin: RANGE_BIN_UNAVAILABLE,
+            breathing_deviation_q8_8: 0,
+        }
+    }
+
     /// Encode the fixed 24-byte payload (no telemetry header).
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::with_capacity(VITALS_LEN);
@@ -330,6 +378,18 @@ pub struct Fatigue {
 }
 
 impl Fatigue {
+    /// The verdict a Read must return before the model has produced one:
+    /// `WARMING_UP`, with `VALID` clear so no client displays the placeholder
+    /// `level` as a real score (`PROTOCOL.md` §8, §11).
+    pub fn warming_up(model_revision: u32) -> Self {
+        Self {
+            level: 0,
+            confidence: 0,
+            status_flags: fatigue_flags::WARMING_UP,
+            model_revision,
+        }
+    }
+
     /// Encode the fixed 12-byte payload (no telemetry header).
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::with_capacity(FATIGUE_LEN);
@@ -460,6 +520,8 @@ impl PointCloud {
 
 /// Length of the fixed Stream Control request header (`PROTOCOL.md` §12).
 pub const CONTROL_HEADER_LEN: usize = 8;
+/// Exact body length of a `SET_STREAMS` request (`PROTOCOL.md` §12).
+pub const SET_STREAMS_LEN: usize = 8;
 /// Maximum bytes echoed back by a `PING` (`PROTOCOL.md` §12).
 pub const PING_MAX_ECHO: usize = 16;
 
@@ -467,10 +529,21 @@ pub const PING_MAX_ECHO: usize = 16;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControlRequest {
     pub request_id: u16,
+    /// The opcode byte as written, retained even when the body is unusable so
+    /// the Control Response echoes back what the client actually asked for
+    /// (`PROTOCOL.md` §12).
+    pub opcode: u8,
     pub op: ControlOp,
 }
 
 /// The opcode-specific body of a [`ControlRequest`].
+///
+/// [`Unsupported`](Self::Unsupported) and [`Invalid`](Self::Invalid) are not
+/// parse failures: a request with a well-formed header is always answered, so
+/// they travel the same path as a good request and resolve to the matching
+/// [`ControlResult`]. Dropping them silently would leave a client waiting for an
+/// indication that never arrives against one device while the other answers
+/// immediately.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlOp {
     /// `0x01` — set which streams are active and their rates.
@@ -481,6 +554,11 @@ pub enum ControlOp {
     RequestSnapshot(u16),
     /// `0x04` — liveness check; the payload is echoed back.
     Ping(Vec<u8>),
+    /// The opcode is not one defined in v1 → answer [`ControlResult::Unsupported`].
+    Unsupported,
+    /// The opcode is known but its body is the wrong size → answer
+    /// [`ControlResult::Invalid`].
+    Invalid,
 }
 
 /// `SET_STREAMS` payload (`PROTOCOL.md` §12). The device may lower a requested
@@ -495,24 +573,52 @@ pub struct StreamSettings {
     pub max_points: u8,
 }
 
-/// Why a Stream Control request could not be parsed.
+impl StreamSettings {
+    /// Parse the `SET_STREAMS` body, which must be exactly [`SET_STREAMS_LEN`]
+    /// bytes. The trailing two reserved bytes are ignored (`PROTOCOL.md` §4)
+    /// but must be present — the length is what makes the layout unambiguous.
+    pub fn parse(body: &[u8]) -> Option<Self> {
+        if body.len() != SET_STREAMS_LEN {
+            return None;
+        }
+        let mut b = Reader::new(body);
+        Some(Self {
+            stream_mask: b.u16()?,
+            vitals_hz: b.u8()?,
+            pose_hz: b.u8()?,
+            point_cloud_hz: b.u8()?,
+            max_points: b.u8()?,
+        })
+    }
+}
+
+/// Why a Stream Control **header** could not be accepted.
+///
+/// These are the only conditions that reject the ATT write itself; everything
+/// else is answered with a Control Response. The ESP32-C5 firmware fails the
+/// same three cases with `BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN`, so a client sees
+/// an ATT error from either device for exactly the same inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControlParseError {
-    /// Fewer than [`CONTROL_HEADER_LEN`] bytes, or a body shorter than its
-    /// declared `payload_len`.
+    /// Fewer than [`CONTROL_HEADER_LEN`] bytes.
     Truncated,
     /// Header `protocol_major` did not match [`PROTOCOL_MAJOR`].
     VersionMismatch,
-    /// The opcode byte is not one defined in v1.
-    UnknownOpcode(u8),
+    /// The body length does not equal the header's declared `payload_len`.
+    LengthMismatch,
 }
 
 impl ControlRequest {
     /// Parse a client-written Stream Control value.
     ///
-    /// Validates the 8-byte header, then the opcode body against its expected
-    /// size. `payload_len` from the header bounds the body so trailing bytes
-    /// from a larger ATT write do not leak into an opcode payload.
+    /// A well-formed 8-byte header always yields a request — an unknown opcode
+    /// becomes [`ControlOp::Unsupported`] and a wrong-sized body becomes
+    /// [`ControlOp::Invalid`] — so the device always has something to answer
+    /// with. Only a malformed header (`Err`) rejects the write at the ATT layer.
+    ///
+    /// The header's `reserved` field is read and ignored per `PROTOCOL.md` §4:
+    /// receivers must not reject a request over a reserved byte, or a v1.1
+    /// client that starts using it could no longer talk to a v1.0 device.
     pub fn parse(buf: &[u8]) -> Result<Self, ControlParseError> {
         let mut r = Reader::new(buf);
         let major = r.u8().ok_or(ControlParseError::Truncated)?;
@@ -523,43 +629,47 @@ impl ControlRequest {
         let request_id = r.u16().ok_or(ControlParseError::Truncated)?;
         let payload_len = r.u16().ok_or(ControlParseError::Truncated)? as usize;
         let _reserved = r.u16().ok_or(ControlParseError::Truncated)?;
-        if r.remaining() < payload_len {
-            return Err(ControlParseError::Truncated);
+        // Exact, not "at least": a body that disagrees with its declared length
+        // is ambiguous, and guessing which end is authoritative is how two
+        // implementations drift apart.
+        if r.remaining() != payload_len {
+            return Err(ControlParseError::LengthMismatch);
         }
-        // Confine the body to its declared length.
         let body = &buf[CONTROL_HEADER_LEN..CONTROL_HEADER_LEN + payload_len];
 
         let op = match opcode {
-            0x01 => {
-                let mut b = Reader::new(body);
-                let stream_mask = b.u16().ok_or(ControlParseError::Truncated)?;
-                let vitals_hz = b.u8().ok_or(ControlParseError::Truncated)?;
-                let pose_hz = b.u8().ok_or(ControlParseError::Truncated)?;
-                let point_cloud_hz = b.u8().ok_or(ControlParseError::Truncated)?;
-                let max_points = b.u8().ok_or(ControlParseError::Truncated)?;
-                ControlOp::SetStreams(StreamSettings {
-                    stream_mask,
-                    vitals_hz,
-                    pose_hz,
-                    point_cloud_hz,
-                    max_points,
-                })
-            }
-            0x02 => {
-                let mut b = Reader::new(body);
-                ControlOp::SetSubject(b.u16().ok_or(ControlParseError::Truncated)?)
-            }
-            0x03 => {
-                let mut b = Reader::new(body);
-                ControlOp::RequestSnapshot(b.u16().ok_or(ControlParseError::Truncated)?)
-            }
-            0x04 => {
-                let echo = &body[..body.len().min(PING_MAX_ECHO)];
-                ControlOp::Ping(echo.to_vec())
-            }
-            other => return Err(ControlParseError::UnknownOpcode(other)),
+            0x01 => match StreamSettings::parse(body) {
+                Some(settings) => ControlOp::SetStreams(settings),
+                None => ControlOp::Invalid,
+            },
+            0x02 => match u16_body(body) {
+                Some(subject_id) => ControlOp::SetSubject(subject_id),
+                None => ControlOp::Invalid,
+            },
+            0x03 => match u16_body(body) {
+                Some(mask) => ControlOp::RequestSnapshot(mask),
+                None => ControlOp::Invalid,
+            },
+            // Over-long echoes are rejected rather than truncated: silently
+            // returning fewer bytes than were sent makes PING useless as a
+            // round-trip integrity check.
+            0x04 if body.len() > PING_MAX_ECHO => ControlOp::Invalid,
+            0x04 => ControlOp::Ping(body.to_vec()),
+            _ => ControlOp::Unsupported,
         };
-        Ok(Self { request_id, op })
+        Ok(Self {
+            request_id,
+            opcode,
+            op,
+        })
+    }
+}
+
+/// Read a body that must be exactly one `u16` (`SET_SUBJECT`, `REQUEST_SNAPSHOT`).
+fn u16_body(body: &[u8]) -> Option<u16> {
+    match body {
+        [low, high] => Some(u16::from_le_bytes([*low, *high])),
+        _ => None,
     }
 }
 
@@ -816,6 +926,7 @@ mod tests {
         ];
         let req = ControlRequest::parse(&buf).unwrap();
         assert_eq!(req.request_id, 42);
+        assert_eq!(req.opcode, 0x01);
         assert_eq!(
             req.op,
             ControlOp::SetStreams(StreamSettings {
@@ -826,6 +937,56 @@ mod tests {
                 max_points: 0,
             })
         );
+    }
+
+    /// A well-formed header is always answerable: an unknown opcode and a
+    /// wrong-sized body both parse, so the device replies `Unsupported` /
+    /// `Invalid` instead of leaving the client waiting (`PROTOCOL.md` §12).
+    #[test]
+    fn well_formed_header_always_yields_an_answerable_request() {
+        let unknown = vec![1, 0x7F, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let req = ControlRequest::parse(&unknown).unwrap();
+        assert_eq!(req.opcode, 0x7F);
+        assert_eq!(req.request_id, 9);
+        assert_eq!(req.op, ControlOp::Unsupported);
+
+        // SET_STREAMS with a 6-byte body: the ESP32-C5 answers INVALID.
+        #[rustfmt::skip]
+        let short_body = vec![
+            1, 0x01, 0x0A, 0x00, 0x06, 0x00, 0x00, 0x00,
+            0x02, 0x00, 2, 0, 0, 0,
+        ];
+        let req = ControlRequest::parse(&short_body).unwrap();
+        assert_eq!(req.opcode, 0x01);
+        assert_eq!(req.op, ControlOp::Invalid);
+
+        // SET_SUBJECT / REQUEST_SNAPSHOT bodies must be exactly one u16.
+        let three_byte = vec![1, 0x02, 0, 0, 0x03, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00];
+        assert_eq!(
+            ControlRequest::parse(&three_byte).unwrap().op,
+            ControlOp::Invalid
+        );
+
+        // A PING longer than the echo limit is refused, not truncated.
+        let mut long_ping = vec![1, 0x04, 0, 0, 17, 0x00, 0x00, 0x00];
+        long_ping.extend(std::iter::repeat_n(b'x', 17));
+        assert_eq!(
+            ControlRequest::parse(&long_ping).unwrap().op,
+            ControlOp::Invalid
+        );
+    }
+
+    /// A non-zero `reserved` must not be rejected (`PROTOCOL.md` §4), otherwise
+    /// a later minor version that uses the field breaks against a v1.0 device.
+    #[test]
+    fn reserved_header_bytes_are_ignored() {
+        #[rustfmt::skip]
+        let buf = vec![
+            1, 0x03, 0x01, 0x00, 0x02, 0x00, 0xAB, 0xCD,
+            0x02, 0x00,
+        ];
+        let req = ControlRequest::parse(&buf).unwrap();
+        assert_eq!(req.op, ControlOp::RequestSnapshot(streams::VITALS));
     }
 
     #[test]
@@ -843,7 +1004,7 @@ mod tests {
 
         let resp = ControlResponse {
             request_id: req.request_id,
-            opcode: 0x04,
+            opcode: req.opcode,
             result: ControlResult::Success,
             effective_stream_mask: 0,
             effective_vitals_hz: 0,
@@ -857,24 +1018,61 @@ mod tests {
         assert_eq!(&encoded[CONTROL_RESPONSE_LEN..], b"pong");
     }
 
+    /// The three header faults that reject the ATT write itself. Every other
+    /// input is answered with a Control Response, matching the ESP32-C5.
     #[test]
-    fn rejects_bad_version_and_unknown_opcode() {
+    fn rejects_only_malformed_headers() {
         let bad_major = vec![2, 0x04, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             ControlRequest::parse(&bad_major),
             Err(ControlParseError::VersionMismatch)
         );
 
-        let unknown = vec![1, 0x7F, 0, 0, 0, 0, 0, 0];
+        let short_header = vec![1, 0x04, 0, 0, 0];
         assert_eq!(
-            ControlRequest::parse(&unknown),
-            Err(ControlParseError::UnknownOpcode(0x7F))
+            ControlRequest::parse(&short_header),
+            Err(ControlParseError::Truncated)
         );
 
-        let truncated = vec![1, 0x01, 0, 0, 8, 0, 0, 0, 1, 2, 3];
+        // Declared payload_len = 8, but only 3 body bytes follow.
+        let under = vec![1, 0x01, 0, 0, 8, 0, 0, 0, 1, 2, 3];
         assert_eq!(
-            ControlRequest::parse(&truncated),
-            Err(ControlParseError::Truncated)
+            ControlRequest::parse(&under),
+            Err(ControlParseError::LengthMismatch)
+        );
+
+        // Declared payload_len = 2, but 4 body bytes follow.
+        let over = vec![1, 0x03, 0, 0, 2, 0, 0, 0, 1, 2, 3, 4];
+        assert_eq!(
+            ControlRequest::parse(&over),
+            Err(ControlParseError::LengthMismatch)
+        );
+    }
+
+    #[test]
+    fn read_before_first_publish_encodes_a_valid_message() {
+        // A Read must never return an empty value (PROTOCOL.md §11).
+        assert_eq!(Vitals::warming_up().encode().len(), VITALS_LEN);
+        assert_eq!(DeviceStatus::initial(0).encode().len(), DEVICE_STATUS_LEN);
+        assert_eq!(Fatigue::warming_up(0).encode().len(), FATIGUE_LEN);
+
+        // Warming up means "no reading yet", not "zero bpm".
+        let vitals = Vitals::warming_up();
+        assert_eq!(vitals.heart_rate_x100, RATE_UNAVAILABLE);
+        assert_eq!(vitals.respiration_rate_x100, RATE_UNAVAILABLE);
+        assert_eq!(vitals.range_bin, RANGE_BIN_UNAVAILABLE);
+        assert_eq!(
+            vitals.status_flags & vitals_flags::WARMING_UP,
+            vitals_flags::WARMING_UP
+        );
+        // No *_VALID bit may be set while warming up.
+        assert_eq!(
+            vitals.status_flags & (vitals_flags::HEART_VALID | vitals_flags::RESPIRATION_VALID),
+            0
+        );
+        assert_eq!(
+            Fatigue::warming_up(7).status_flags & fatigue_flags::VALID,
+            0
         );
     }
 }

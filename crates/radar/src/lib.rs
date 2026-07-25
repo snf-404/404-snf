@@ -34,12 +34,12 @@ pub use indicators::{
 };
 #[cfg(feature = "vital-signs")]
 pub use indicators::{VitalRateEstimate, VitalStatus};
-#[cfg(feature = "vital-signs")]
-pub use parser::VitalSignsReading;
 pub use parser::{
     FrameHeader, MAGIC_WORD, ParseError, ProcessingStats, RadarFrame, RadarPoint, RadarProtocol,
     RangeProfile, TemperatureStats, parse_frame, parse_frame_for,
 };
+#[cfg(feature = "vital-signs")]
+pub use parser::{PointAssociation, TrackedTarget, VitalSignsReading};
 
 use std::{error::Error, fmt, io, time::Duration};
 
@@ -161,7 +161,9 @@ mod serial {
             Self {
                 data_port: "/dev/ttyUSB1".to_string(),
                 baud_rate: 921_600,
-                protocol: RadarProtocol::OutOfBox,
+                // Follows the enum's own default, so the protocol this crate
+                // deploys is stated in exactly one place.
+                protocol: RadarProtocol::default(),
                 max_packet_length: DEFAULT_MAX_PACKET_LENGTH,
             }
         }

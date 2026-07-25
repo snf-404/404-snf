@@ -45,7 +45,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use snf_ble::{
     BleTransport, Telemetry,
-    protocol::{ProtocolInfo, capabilities, streams},
+    protocol::{ControlOp, Fatigue, ProtocolInfo, Vitals, capabilities, header_flags, streams},
 };
 use snf_bridge::{
     Accounting, FeatureExtractor, StreamState, Trust, confidence,
@@ -271,6 +271,15 @@ async fn main(mut context: Context) {
     let mut actuator_tick = tokio::time::interval(ACTUATOR_PERIOD);
     let mut last_vitals_at: Option<Instant> = None;
 
+    // The latest record of each on-demand stream, replayed with the `SNAPSHOT`
+    // flag when a client asks for one (`PROTOCOL.md` §12). They start at the
+    // warming-up defaults because a snapshot taken before the first reading
+    // still has to answer with a decodable message rather than nothing — the
+    // ESP32-C5 synthesises one from its (initially warming-up) sample the same
+    // way.
+    let mut last_vitals = (Vitals::warming_up(), 0u8);
+    let mut last_fatigue = Fatigue::warming_up(config.fatigue.revision);
+
     // The fatigue → inflation-speed model: which deformation mode the current
     // fatigue level calls for, how fast to approach it, and the hysteresis and
     // charge ceilings that bound it. Canopy stays disarmed: it is the one mode
@@ -307,8 +316,11 @@ async fn main(mut context: Context) {
                 }
                 last_vitals_at = Some(now);
 
+                // Mapped unconditionally so a snapshot request answers with the
+                // current reading even while the stream is switched off.
+                let mapped = map::vitals(&snapshot);
+                last_vitals = (mapped.payload, mapped.header_flags);
                 if stream_state.stream_mask & streams::VITALS != 0 {
-                    let mapped = map::vitals(&snapshot);
                     if let Err(e) = ble.publish(Telemetry::Vitals(mapped.payload), mapped.header_flags).await {
                         tracing::warn!("snf-app: vitals publish failed: {e}");
                     }
@@ -362,9 +374,10 @@ async fn main(mut context: Context) {
                             // when it was withheld — a client should see what
                             // the model thought *and* that the device did not
                             // act on it.
+                            let payload =
+                                map::fatigue_telemetry(verdict, config.fatigue.revision);
+                            last_fatigue = payload;
                             if stream_state.stream_mask & streams::FATIGUE != 0 {
-                                let payload =
-                                    map::fatigue_telemetry(verdict, config.fatigue.revision);
                                 if let Err(e) = ble.publish(Telemetry::Fatigue(payload), 0).await {
                                     tracing::warn!("snf-app: fatigue publish failed: {e}");
                                 }
@@ -379,6 +392,41 @@ async fn main(mut context: Context) {
             Some(request) = control.recv() => {
                 let response = stream_state.apply(&request, DEVICE_CAPABILITIES, MAX_POINTS);
                 accounting.active_streams = stream_state.stream_mask;
+
+                // `REQUEST_SNAPSHOT` has to actually deliver the frames — the
+                // response only reports which streams were servable. Gated on
+                // the active mask, so a snapshot never revives a stream the
+                // client turned off (`PROTOCOL.md` §12).
+                if let ControlOp::RequestSnapshot(mask) = request.op {
+                    let due = mask & stream_state.stream_mask;
+                    if due & streams::STATUS != 0 {
+                        let payload = accounting.snapshot();
+                        if let Err(e) = ble
+                            .publish(Telemetry::Status(payload), header_flags::SNAPSHOT)
+                            .await
+                        {
+                            tracing::warn!("snf-app: status snapshot failed: {e}");
+                        }
+                    }
+                    if due & streams::VITALS != 0 {
+                        let (payload, flags) = last_vitals;
+                        if let Err(e) = ble
+                            .publish(Telemetry::Vitals(payload), flags | header_flags::SNAPSHOT)
+                            .await
+                        {
+                            tracing::warn!("snf-app: vitals snapshot failed: {e}");
+                        }
+                    }
+                    if due & streams::FATIGUE != 0 {
+                        if let Err(e) = ble
+                            .publish(Telemetry::Fatigue(last_fatigue), header_flags::SNAPSHOT)
+                            .await
+                        {
+                            tracing::warn!("snf-app: fatigue snapshot failed: {e}");
+                        }
+                    }
+                }
+
                 if let Err(e) = ble.respond(response).await {
                     tracing::warn!("snf-app: control response failed: {e}");
                 }

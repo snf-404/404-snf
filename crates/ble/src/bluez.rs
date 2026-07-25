@@ -43,7 +43,7 @@ use bluer::{
     gatt::local::{
         Application, ApplicationHandle, Characteristic, CharacteristicNotifier,
         CharacteristicNotify, CharacteristicNotifyMethod, CharacteristicRead, CharacteristicWrite,
-        CharacteristicWriteMethod, Service,
+        CharacteristicWriteMethod, ReqError as GattReqError, Service,
     },
 };
 use futures::FutureExt;
@@ -53,9 +53,9 @@ use uuid::Uuid;
 use crate::backend::{BleError, BleTransport, Telemetry};
 use crate::fragment::{fragment, frame_unfragmented};
 use crate::protocol::{
-    ControlRequest, ControlResponse, DEVICE_STATUS_UUID, FATIGUE_UUID, MessageType,
-    POINT_CLOUD_UUID, POSE_UUID, PROTOCOL_INFO_UUID, ProtocolInfo, SERVICE_UUID,
-    STREAM_CONTROL_UUID, VITALS_UUID, capabilities,
+    ControlRequest, ControlResponse, DEVICE_STATUS_UUID, DeviceStatus, FATIGUE_UUID, Fatigue,
+    MessageType, POINT_CLOUD_UUID, POSE_UUID, PROTOCOL_INFO_UUID, ProtocolInfo, SERVICE_UUID,
+    STREAM_CONTROL_UUID, VITALS_UUID, Vitals, capabilities, streams,
 };
 
 /// Depth of each characteristic's frame channel. Small: the protocol drops old
@@ -183,11 +183,35 @@ struct ReadCaches {
 }
 
 impl ReadCaches {
-    fn new() -> Self {
+    /// Seed every cache with a complete, decodable "nothing measured yet"
+    /// message rather than an empty buffer.
+    ///
+    /// A client reads these on connect, before the application has published
+    /// anything (`PROTOCOL.md` §11, §14). Returning a zero-length value would
+    /// make that read undecodable on this device while the ESP32-C5, which
+    /// synthesises a payload on every read, answers normally — the same client
+    /// code has to work against both. `sequence` starts at `0` and the first
+    /// real publish overwrites these.
+    fn seeded(info: &ProtocolInfo) -> Self {
+        let framed = |message_type, payload: Vec<u8>| {
+            Arc::new(Mutex::new(frame_unfragmented(
+                message_type,
+                0,
+                0,
+                0,
+                &payload,
+            )))
+        };
         Self {
-            status: Arc::new(Mutex::new(Vec::new())),
-            vitals: Arc::new(Mutex::new(Vec::new())),
-            fatigue: Arc::new(Mutex::new(Vec::new())),
+            status: framed(
+                MessageType::DeviceStatus,
+                DeviceStatus::initial(baseline_streams(info.capabilities)).encode(),
+            ),
+            vitals: framed(MessageType::Vitals, Vitals::warming_up().encode()),
+            // `model_revision` is `0` = unknown: the peripheral does not know
+            // which fatigue model the application loaded, and the first real
+            // publish carries the true revision.
+            fatigue: framed(MessageType::Fatigue, Fatigue::warming_up(0).encode()),
         }
     }
 
@@ -212,9 +236,9 @@ impl BluezPeripheral {
         let (control_tx, control_rx) = mpsc::channel(32);
         Self {
             adapter_name,
+            latest: ReadCaches::seeded(&info),
             info,
             channels: Channels::new(),
-            latest: ReadCaches::new(),
             mtu: Arc::new(AtomicUsize::new(DEFAULT_ATT_MTU)),
             pairing_open: Arc::new(AtomicBool::new(false)),
             seq: SeqCounters::default(),
@@ -471,6 +495,23 @@ impl BleTransport for BluezPeripheral {
     }
 }
 
+/// The post-connect baseline stream mask for a build with these capabilities
+/// (`PROTOCOL.md` §13): Status always on, Vitals and Fatigue on when advertised,
+/// Pose and Point Cloud off until a client asks.
+///
+/// Used only to fill `active_streams` in the pre-publish Read; the first real
+/// Status publish carries the application's actual mask.
+fn baseline_streams(capabilities_bits: u32) -> u16 {
+    let mut mask = streams::STATUS;
+    if capabilities_bits & capabilities::VITALS != 0 {
+        mask |= streams::VITALS;
+    }
+    if capabilities_bits & capabilities::FATIGUE != 0 {
+        mask |= streams::FATIGUE;
+    }
+    mask
+}
+
 /// A read-only characteristic returning a fixed byte string (Protocol Info).
 ///
 /// The read request carries the negotiated ATT MTU (BlueZ's `Fun`-based notify
@@ -576,13 +617,21 @@ fn control_characteristic(
                 mtu.store(req.mtu as usize, Ordering::Relaxed);
                 let requests = requests.clone();
                 async move {
-                    // Parse errors are dropped: a malformed control write should
-                    // not tear down the ATT link. The client learns nothing came
-                    // back (no Control Response) and can retry.
-                    if let Ok(request) = ControlRequest::parse(&value) {
-                        let _ = requests.send(request).await;
+                    match ControlRequest::parse(&value) {
+                        // Every well-formed header — including an unknown opcode
+                        // or a malformed body — reaches the application, which
+                        // always answers with a Control Response. Dropping these
+                        // would leave the client waiting on an indication that
+                        // never arrives, while the ESP32-C5 replies at once.
+                        Ok(request) => {
+                            let _ = requests.send(request).await;
+                            Ok(())
+                        }
+                        // Only a malformed header fails the write itself, which
+                        // is what the ESP32-C5 answers with
+                        // `BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN`.
+                        Err(_) => Err(GattReqError::InvalidValueLength),
                     }
-                    Ok(())
                 }
                 .boxed()
             })),
