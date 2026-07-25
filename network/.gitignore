@@ -1,7 +1,0 @@
-# The PyTorch checkpoint is a build intermediate — `train.py` writes it and
-# `export.py` consumes it. `fatigue.onnx` is the artifact that ships and IS
-# tracked: the board needs it, it is 8 KB, and there is no artifact store here.
-out/*.pt
-
-.venv/
-__pycache__/

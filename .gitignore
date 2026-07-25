@@ -36,3 +36,11 @@ dist/
 *.tsbuildinfo
 .env*
 !.env.example
+
+# Python / uv ML workspace
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+ml/data/
+ml/artifacts/

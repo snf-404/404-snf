@@ -212,12 +212,16 @@ All thresholds and windows are fields of `IndicatorConfig`. Confidence describes
 input support and short-term numerical stability; it is not diagnostic or
 clinical confidence.
 
-The existing fatigue placeholder maps directly:
+`snf_bridge::FeatureExtractor` combines the stabilized rates with personal
+baselines and the point-cloud activity snapshot:
 
 ```text
-FatigueFeatures.breathing_rate_bpm <- respiration_rate.stabilized_bpm
-FatigueFeatures.heart_rate_bpm     <- heart_rate.stabilized_bpm
-FatigueFeatures.motion_energy      <- activity.motion_energy_mps2
+heart_slowdown              <- heart rate relative to personal baseline
+respiration_slowdown        <- respiration relative to personal baseline
+motion_quietness            <- activity.rms_radial_speed_mps
+moving_point_quietness      <- activity.moving_point_fraction
+recent_motion_drop          <- short_term_energy / long_term_energy
+cardiorespiratory_agreement <- heart_slowdown * respiration_slowdown
 ```
 
 Only construct a fatigue sample when the required vital estimates are

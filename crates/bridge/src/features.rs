@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Windowed feature extraction: indicator snapshots in, model input out.
+//! Windowed feature extraction for the six-feature linear fatigue model.
 //!
 //! The fatigue model does not see an instant, it sees a **window**. That is the
 //! whole reason this module is stateful and [`crate::map`] is not. Drowsiness is
@@ -10,12 +10,10 @@
 //! 62 bpm is meaningless; 62 bpm against a personal baseline of 71, trending
 //! down, is the signal.
 //!
-//! So [`FeatureExtractor`] keeps two horizons:
+//! [`FeatureExtractor`] keeps two horizons:
 //!
-//! * a **window** ([`WINDOW`], 90 s) that slope, standard deviation and the
-//!   motion duty fraction are computed over. Long enough for a respiration
-//!   estimate to show its variability, short enough that the verdict still
-//!   tracks someone settling.
+//! * a **window** ([`WINDOW`], 90 s) that decides whether a rate channel has
+//!   enough support to be trusted.
 //! * a **baseline** ([`BASELINE_TAU`], 15 min EWMA) that deviations are measured
 //!   against. It has to move far slower than the window, because minutes-long
 //!   drift is the signal rather than the noise — a baseline that chased the
@@ -24,21 +22,13 @@
 //! # These constants are not deployment configuration
 //!
 //! Unlike the wiring in `Repose.toml`, nothing here is a knob. The window and
-//! the baseline time constant are baked into the ONNX weights: `network/`
-//! trained against features computed exactly this way, so changing one without
-//! retraining silently feeds the model a distribution it has never seen. They
-//! are mirrored in `network/snf_net/contract.py`; the two must move together.
+//! the baseline time constant define the feature contract documented in
+//! `ml/README.md`; changing one requires retraining.
 //!
 //! # Missing readings
 //!
-//! A dropped channel is reported as *invalid*, never as zero. `hr_bpm = 0.0`
-//! with `hr_valid = true` would be a heart that has stopped; the model is
-//! trained to read the flag and fall back on the channels that remain, and to
-//! widen its output distribution when it does — which the confidence gate then
-//! turns into a mat that stays still. A channel that is present but sparse is
-//! also reported invalid: a least-squares slope fitted through eight samples
-//! spanning four seconds is noise with a large magnitude, and the model would
-//! read it as a violent trend.
+//! A dropped or sparse channel contributes neutral evidence and lowers the
+//! runtime confidence; it is never represented as a zero physiological rate.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -51,9 +41,6 @@ pub const WINDOW: Duration = Duration::from_secs(90);
 
 /// Time constant of the per-subject baseline EWMA.
 pub const BASELINE_TAU: Duration = Duration::from_secs(900);
-
-/// Motion energy above which a sample counts as movement, in `(m/s)²`.
-pub const MOTION_ACTIVE_THRESHOLD: f32 = 0.02;
 
 /// A channel needs valid readings spanning at least this fraction of the window
 /// before its slope and spread are trusted.
@@ -69,10 +56,6 @@ struct Sample {
     at: Instant,
     hr_bpm: Option<f32>,
     rr_bpm: Option<f32>,
-    /// `ln(1 + 1000 · motion_energy_mps2)`, precomputed so a long window is not
-    /// re-logged on every tick.
-    motion_log: f32,
-    motion_active: bool,
 }
 
 /// Rolling window and baselines behind [`FatigueFeatures`].
@@ -113,16 +96,12 @@ impl FeatureExtractor {
 
         let hr_bpm = stabilized(snapshot.heart_rate.as_ref());
         let rr_bpm = stabilized(snapshot.respiration_rate.as_ref());
-        let motion_energy = sanitize(snapshot.activity.motion_energy_mps2).unwrap_or(0.0);
-
         self.update_baselines(now, hr_bpm, rr_bpm);
 
         self.samples.push_back(Sample {
             at: now,
             hr_bpm,
             rr_bpm,
-            motion_log: (1.0 + 1000.0 * motion_energy.max(0.0)).ln(),
-            motion_active: motion_energy > MOTION_ACTIVE_THRESHOLD,
         });
         // Drop anything that has fallen out of the window. `now` can in
         // principle be older than a retained sample if the caller passes
@@ -138,45 +117,60 @@ impl FeatureExtractor {
 
         let hr = self.channel(|s| s.hr_bpm, self.hr_baseline);
         let rr = self.channel(|s| s.rr_bpm, self.rr_baseline);
-        let motion = self.channel(|s| Some(s.motion_log), None);
-
-        // Motion energy is a *point* observation — unlike the rate channels it
-        // needs no window to be meaningful, so it is read from the newest
-        // sample rather than from `motion.last`. That matters on a cold start:
-        // `ChannelStats::default()` would report 0.0, and 0.0 is not "unknown"
-        // to the model, it is "completely still", which is the strongest
-        // quiescence evidence there is. The rate channels have validity flags to
-        // say "no reading"; motion has none, so it must never report a value it
-        // does not mean. Only the slope genuinely needs history, and 0.0 there
-        // reads as "no trend", which is both true and in-distribution.
-        let motion_log_energy = self.samples.back().map_or(0.0, |s| s.motion_log);
-
-        let active = self.samples.iter().filter(|s| s.motion_active).count();
-        let motion_active_fraction = if self.samples.is_empty() {
-            0.0
-        } else {
-            active as f32 / self.samples.len() as f32
-        };
+        let heart_slowdown = slowdown(hr, 0.15, 10.0);
+        let respiration_slowdown = slowdown(rr, 0.20, 3.0);
+        let rms_speed = sanitize(snapshot.activity.rms_radial_speed_mps)
+            .unwrap_or(0.10)
+            .max(0.0);
+        let motion_quietness = 1.0 - (rms_speed / 0.10).clamp(0.0, 1.0);
+        let moving_point_quietness = 1.0
+            - sanitize(snapshot.activity.moving_point_fraction)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+        let short_energy = sanitize(snapshot.activity.short_term_energy_mps2)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let long_energy = sanitize(snapshot.activity.long_term_energy_mps2)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let recent_motion_drop =
+            ((long_energy - short_energy) / long_energy.max(1e-6)).clamp(-1.0, 1.0);
+        let elapsed = now.saturating_duration_since(started_at);
+        let mut sensor_confidence = sanitize(snapshot.activity.confidence)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
+        if hr.valid {
+            sensor_confidence = sensor_confidence.min(
+                snapshot
+                    .heart_rate
+                    .as_ref()
+                    .and_then(|estimate| sanitize(estimate.confidence))
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 1.0),
+            );
+        }
+        if rr.valid {
+            sensor_confidence = sensor_confidence.min(
+                snapshot
+                    .respiration_rate
+                    .as_ref()
+                    .and_then(|estimate| sanitize(estimate.confidence))
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 1.0),
+            );
+        }
 
         FatigueFeatures {
-            hr_bpm: hr.last,
-            hr_baseline_delta: hr.baseline_delta,
-            hr_slope: hr.slope,
-            hr_std: hr.std,
-
-            rr_bpm: rr.last,
-            rr_baseline_delta: rr.baseline_delta,
-            rr_slope: rr.slope,
-            rr_std: rr.std,
-
-            motion_log_energy,
-            motion_slope: motion.slope,
-            motion_active_fraction,
-
-            time_on_task_h: now.duration_since(started_at).as_secs_f32() / 3600.0,
-
+            heart_slowdown,
+            respiration_slowdown,
+            motion_quietness,
+            moving_point_quietness,
+            recent_motion_drop,
+            cardiorespiratory_agreement: heart_slowdown * respiration_slowdown,
             hr_valid: hr.valid,
             rr_valid: rr.valid,
+            baseline_confidence: (elapsed.as_secs_f32() / 600.0).clamp(0.0, 1.0)
+                * sensor_confidence,
         }
     }
 
@@ -227,18 +221,9 @@ impl FeatureExtractor {
         }
 
         let last = points[points.len() - 1].1;
-        let mean = points.iter().map(|(_, v)| *v as f64).sum::<f64>() / points.len() as f64;
-        let variance = points
-            .iter()
-            .map(|(_, v)| (*v as f64 - mean).powi(2))
-            .sum::<f64>()
-            / points.len() as f64;
-
         ChannelStats {
             last,
             baseline_delta: baseline.map_or(0.0, |b| last - b),
-            slope: slope(&points),
-            std: variance.sqrt() as f32,
             valid: true,
         }
     }
@@ -248,27 +233,16 @@ impl FeatureExtractor {
 struct ChannelStats {
     last: f32,
     baseline_delta: f32,
-    slope: f32,
-    std: f32,
     valid: bool,
 }
 
-/// Least-squares slope of value against minutes. Zero when undefined.
-fn slope(points: &[(f64, f32)]) -> f32 {
-    let n = points.len() as f64;
-    let x_mean = points.iter().map(|(x, _)| *x).sum::<f64>() / n;
-    let y_mean = points.iter().map(|(_, y)| *y as f64).sum::<f64>() / n;
-
-    let mut numerator = 0.0;
-    let mut denominator = 0.0;
-    for (x, y) in points {
-        numerator += (x - x_mean) * (*y as f64 - y_mean);
-        denominator += (x - x_mean).powi(2);
-    }
-    if denominator <= 0.0 {
+fn slowdown(channel: ChannelStats, relative_scale: f32, minimum_scale: f32) -> f32 {
+    if !channel.valid {
         return 0.0;
     }
-    (numerator / denominator) as f32
+    let baseline = channel.last - channel.baseline_delta;
+    let scale = (relative_scale * baseline).max(minimum_scale);
+    (-channel.baseline_delta / scale).clamp(-2.0, 2.0)
 }
 
 /// EWMA step that seeds on the first reading instead of ramping from zero.
@@ -357,24 +331,16 @@ mod tests {
         assert!(!features.rr_valid);
     }
 
-    /// Motion has no validity flag, so it must never report a value it does not
-    /// mean. On a cold window it reports what it just measured — reporting 0.0
-    /// would tell the model the subject is perfectly still, which is the single
-    /// strongest piece of fatigue evidence the rule has.
+    /// Point-cloud motion features are instantaneous and remain meaningful
+    /// while the slower physiological window warms up.
     #[test]
     fn a_cold_window_still_reports_real_motion() {
         let mut extractor = FeatureExtractor::new();
         let features = run(&mut extractor, Instant::now(), 2, |_| {
             (Some(70.0), Some(14.0), 0.35)
         });
-        let expected = (1.0f32 + 1000.0 * 0.35).ln();
-        assert!(
-            (features.motion_log_energy - expected).abs() < 1e-4,
-            "cold window reported {} instead of the measured {expected}",
-            features.motion_log_energy
-        );
-        // The slope, which genuinely needs history, is the one that reads zero.
-        assert_eq!(features.motion_slope, 0.0);
+        assert_eq!(features.motion_quietness, 0.0);
+        assert!((features.moving_point_quietness - 0.8).abs() < 1e-6);
     }
 
     #[test]
@@ -384,26 +350,17 @@ mod tests {
             (Some(70.0), Some(14.0), 0.01)
         });
         assert!(features.hr_valid && features.rr_valid);
-        assert_eq!(features.hr_bpm, 70.0);
-        assert!(features.hr_std.abs() < 1e-5, "constant input has no spread");
-        assert!(
-            features.hr_slope.abs() < 1e-3,
-            "constant input has no slope"
-        );
+        assert!(features.heart_slowdown.abs() < 1e-5);
     }
 
-    /// The unit that matters: a rate falling 6 bpm over 90 s is -4 bpm/min.
+    /// Falling below the slowly moving personal baseline is positive evidence.
     #[test]
-    fn slope_is_per_minute() {
+    fn falling_heart_rate_produces_slowdown_evidence() {
         let mut extractor = FeatureExtractor::new();
         let features = run(&mut extractor, Instant::now(), 181, |i| {
             (Some(70.0 - 6.0 * i as f32 / 180.0), Some(14.0), 0.01)
         });
-        assert!(
-            (features.hr_slope - -4.0).abs() < 0.1,
-            "expected ≈-4 bpm/min, got {}",
-            features.hr_slope
-        );
+        assert!(features.heart_slowdown > 0.3, "{features:?}");
     }
 
     /// A dropped channel must read invalid, never as a zero rate — a heart rate
@@ -416,7 +373,7 @@ mod tests {
             ((i < 45).then_some(70.0), Some(14.0), 0.01)
         });
         assert!(!features.hr_valid, "sparse channel should not qualify");
-        assert_eq!(features.hr_bpm, 0.0);
+        assert_eq!(features.heart_slowdown, 0.0);
         assert!(features.rr_valid, "respiration was present throughout");
     }
 
@@ -433,20 +390,21 @@ mod tests {
             (Some(60.0), Some(14.0), 0.01)
         });
         assert!(
-            features.hr_baseline_delta < -8.0,
-            "a 10 bpm drop should still read as a large deviation, got {}",
-            features.hr_baseline_delta
+            features.heart_slowdown > 0.7,
+            "a 10 bpm drop should still read as a large slowdown, got {}",
+            features.heart_slowdown
         );
     }
 
     #[test]
-    fn motion_duty_tracks_the_threshold() {
+    fn point_cloud_quietness_is_bounded() {
         let mut extractor = FeatureExtractor::new();
         let features = run(&mut extractor, Instant::now(), 180, |i| {
             // Every fourth sample is above the movement threshold.
             (Some(70.0), Some(14.0), if i % 4 == 0 { 0.5 } else { 0.001 })
         });
-        assert!((features.motion_active_fraction - 0.25).abs() < 0.02);
+        assert!((0.0..=1.0).contains(&features.motion_quietness));
+        assert!((features.moving_point_quietness - 0.8).abs() < 1e-6);
     }
 
     /// Non-finite vendor values must not reach the baselines.
@@ -461,10 +419,9 @@ mod tests {
                 if i == 30 { f32::INFINITY } else { 0.01 },
             )
         });
-        assert!(features.hr_bpm.is_finite());
-        assert!(features.hr_baseline_delta.is_finite());
-        assert!(features.motion_log_energy.is_finite());
-        assert!(features.hr_std.is_finite());
+        assert!(features.heart_slowdown.is_finite());
+        assert!(features.respiration_slowdown.is_finite());
+        assert!(features.motion_quietness.is_finite());
     }
 
     /// Window contents are bounded by time, not by sample count, so a long
@@ -484,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn time_on_task_accumulates() {
+    fn baseline_confidence_reaches_one_after_ten_minutes() {
         let mut extractor = FeatureExtractor::new();
         let start = Instant::now();
         run(&mut extractor, start, 10, |_| {
@@ -496,6 +453,6 @@ mod tests {
             10,
             |_| (Some(70.0), Some(14.0), 0.01),
         );
-        assert!((features.time_on_task_h - 1.0).abs() < 0.01);
+        assert!((features.baseline_confidence - 0.9).abs() < 1e-6);
     }
 }

@@ -18,13 +18,12 @@ pneumatics. Fail-safety comes from a normally-open vent valve plus the
 
 `snf-fatigue` runs a small ONNX graph through `ort`, loaded from
 `[fatigue] model_path` (default `/opt/snf/fatigue.onnx`). It is built by
-[`network/`](../../network/README.md) — `just net-train`, then
-`just net-deploy root@board`.
+[`ml/`](../../ml/README.md) — `just ml-train --data data/recordings.csv`, then
+`just ml-deploy root@board`.
 
-The graph emits five ordinal logits, not a level. The runtime takes the softmax
-expectation for the level and the **normalized entropy for the confidence**, so
-the two come from one distribution and cannot disagree. Confidence then decides
-how much of the verdict reaches the pneumatics (`snf_bridge::confidence`):
+The graph emits one `0..100` fatigue score. Confidence is derived independently
+from rate-channel availability and personal-baseline warm-up, then decides how
+much of the verdict reaches the pneumatics (`snf_bridge::confidence`):
 below 0.30 the verdict is withheld entirely and published with `LOW_CONFIDENCE`;
 between 0.30 and 0.80 the level is scaled by a smooth logistic, so less certainty
 means a gentler command; above 0.80 it passes through untouched.

@@ -1,0 +1,46 @@
+[project]
+name = "snf-fatigue-lite"
+version = "0.1.0"
+description = "Interpretable ultra-light fatigue model for 404-snf"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "numpy>=2.3,<3",
+  "onnx>=1.16",
+  "onnxruntime>=1.18",
+  "torch>=2.8,<3",
+]
+
+[project.scripts]
+fatigue-train = "fatigue_lite.train:main"
+fatigue-predict = "fatigue_lite.predict:main"
+fatigue-demo-data = "fatigue_lite.demo_data:main"
+fatigue-export = "fatigue_lite.export:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<10",
+  "ruff>=0.12,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fatigue_lite"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

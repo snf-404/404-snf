@@ -191,7 +191,7 @@ async fn main(mut context: Context) {
     let mut indicators = IndicatorEngine::default();
 
     // The rolling window and personal baselines the model reads. Fed at the
-    // vitals rate, which is what `network/` trained against.
+    // vitals rate, matching the feature contract documented in `ml/`.
     let mut features = FeatureExtractor::new();
 
     // Fatigue is optional: without a model we still publish vitals and status.

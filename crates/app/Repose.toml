@@ -74,15 +74,15 @@ section_b = { chip = 8, channel = 0 }
 
 # ── Fatigue: the ONNX model ──────────────────────────────────────────────────
 [fatigue]
-# Built by `network/` (`just net-train`) and deployed here. Absent or
+# Built by `ml/` (`just ml-train`) and deployed here. Absent or
 # unloadable, the binary still publishes vitals and status — it just runs
 # without fatigue, and therefore without actuation.
 model_path = "/opt/snf/fatigue.onnx"
 
 # Reported to clients as the Fatigue payload's `model_revision`. Bump it
 # whenever `model_path` is replaced, so a client can tell two models apart.
-# 1 was the stub that always answered "level 0"; 2 is the first real graph.
-revision = 2
+# 1 was the stub; 2/3 were earlier graphs; 4 is the six-feature linear model.
+revision = 4
 
 # ── BLE ──────────────────────────────────────────────────────────────────────
 [ble]

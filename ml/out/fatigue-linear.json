@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "model_type": "standardized-logistic-linear",
+  "feature_names": [
+    "heart_slowdown",
+    "respiration_slowdown",
+    "motion_quietness",
+    "moving_point_quietness",
+    "recent_motion_drop",
+    "cardiorespiratory_agreement"
+  ],
+  "mean": [
+    0.37326478958129883, 0.4778434932231903, 0.294127881526947, 0.54990154504776,
+    0.17273762822151184, 0.2316361665725708
+  ],
+  "scale": [
+    0.26633381843566895, 0.3651692271232605, 0.23609687387943268, 0.14301854372024536,
+    0.20909875631332397, 0.24659882485866547
+  ],
+  "weight": [
+    0.17295485734939575, 0.310144305229187, 0.12983646988868713, 0.05008946359157562,
+    0.09414603561162949, 0.08658285439014435
+  ],
+  "bias": -1.0381704568862915,
+  "output": {
+    "name": "fatigue_score",
+    "minimum": 0.0,
+    "maximum": 100.0
+  },
+  "metadata": {
+    "label_source": "empirical-formula",
+    "data_rows": 600,
+    "train_rows": 480,
+    "validation_rows": 120,
+    "ridge": 0.1,
+    "seed": 404,
+    "train_metrics": {
+      "mae": 0.0015104502672329545,
+      "rmse": 0.0019639525562524796,
+      "r2": 1.0
+    },
+    "validation_metrics": {
+      "mae": 0.001718807267025113,
+      "rmse": 0.002156431321054697,
+      "r2": 1.0
+    },
+    "warning": "Engineering fatigue proxy; not a medical diagnosis."
+  }
+}

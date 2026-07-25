@@ -195,10 +195,9 @@ impl Default for FatigueSection {
     fn default() -> Self {
         Self {
             model_path: "/opt/snf/fatigue.onnx".to_string(),
-            // 1 was the pre-`network/` stub, which always answered "level 0,
-            // confidence 0". 2 is the first graph that actually infers, so a
-            // client that cached a revision can tell the difference.
-            revision: 2,
+            // 1 was the stub; 2/3 were earlier graphs; 4 is the six-feature
+            // logistic-linear model exported by `ml/`.
+            revision: 4,
         }
     }
 }

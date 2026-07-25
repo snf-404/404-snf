@@ -57,7 +57,7 @@ pub const STREAM_CONTROL_UUID: Uuid = snf_uuid(0x02);
 pub const DEVICE_STATUS_UUID: Uuid = snf_uuid(0x03);
 /// Vitals — heart rate, respiration, motion quality.
 pub const VITALS_UUID: Uuid = snf_uuid(0x04);
-/// Fatigue — optional fatigue-model output.
+/// Fatigue — optional ML inference output.
 pub const FATIGUE_UUID: Uuid = snf_uuid(0x05);
 /// Pose — 3D joints of the tracked subject.
 pub const POSE_UUID: Uuid = snf_uuid(0x06);
