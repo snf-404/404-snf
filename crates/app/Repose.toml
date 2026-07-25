@@ -45,9 +45,9 @@ log = "info"
 # The two are not interchangeable. The CLI port takes the configuration profile
 # at 115200 baud; the data port carries the binary TLV stream at 921600, and
 # says NOTHING until the profile's last line, `sensorStart`, has been accepted.
-data_port = "/dev/ttyACM1"
+data_port = "/dev/ttyUSB1"
 baud_rate = 921600
-cli_port = "/dev/ttyACM0"
+cli_port = "/dev/ttyUSB0"
 cli_baud_rate = 115200
 
 # Send the profile when `snf-app` starts. Leave this on: the sensor boots idle,

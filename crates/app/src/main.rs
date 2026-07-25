@@ -43,10 +43,6 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use snf_ble::{
-    BleTransport, Telemetry,
-    protocol::{ControlOp, Fatigue, ProtocolInfo, Vitals, capabilities, header_flags, streams},
-};
 use snf_bridge::{
     Accounting, FeatureExtractor, StreamState, Trust, confidence,
     inflation::{Actuation, InflationController, InflationMode},
@@ -72,8 +68,6 @@ const STATUS_PERIOD: Duration = Duration::from_secs(1);
 /// [`InflationController`](snf_bridge::inflation::InflationController) still
 /// advance if frames stop mid-inflation.
 const ACTUATOR_PERIOD: Duration = Duration::from_millis(100);
-/// Streams this build can serve: no pose model yet, so `POSE_3D` stays clear.
-const DEVICE_CAPABILITIES: u32 = capabilities::VITALS | capabilities::FATIGUE;
 /// Upper bound on point-cloud points advertised in Protocol Info.
 const MAX_POINTS: u8 = 96;
 
@@ -133,8 +127,8 @@ fn init_logging() {
         .init();
 }
 
-#[consortium_runtime_app::main]
-async fn main(mut context: Context) {
+#[tokio::main]
+async fn main() {
     init_logging();
     tracing::info!("snf-app: CA35 application started; IPC bring-up complete");
 
@@ -150,26 +144,6 @@ async fn main(mut context: Context) {
         }
     };
     config.log_summary();
-
-    // ── BLE peripheral: advertise and serve the SNF telemetry service ────────
-    let info = ProtocolInfo {
-        capabilities: DEVICE_CAPABILITIES,
-        max_point_count: MAX_POINTS as u16,
-        max_pose_joints: 0,
-        max_subjects: 1,
-        boot_id: boot_id(),
-        build_id: BUILD_ID,
-    };
-    let mut ble = snf_ble::BluezPeripheral::new(config.ble.adapter.clone(), info);
-    if let Err(e) = ble.start().await {
-        tracing::error!("snf-app: BLE start failed: {e}");
-        return;
-    }
-    let mut control = ble
-        .control_requests()
-        .expect("control receiver is taken exactly once");
-    let mut stream_state = StreamState::default();
-    let mut accounting = Accounting::new(stream_state.stream_mask);
 
     // ── Pneumatics: symmetric sections on TIM4_CH2 and TIM5_CH1 ──────────────
     // Optional: without the PWM chips (wrong device tree, wrong chip index) the
@@ -250,35 +224,9 @@ async fn main(mut context: Context) {
         }
     };
 
-    // ── CM33 link check: opt-in, advisory, and last ──────────────────────────
-    // The IPC descriptor handshake already happened in `init()`; this is the
-    // separate question of whether anything is *answering* on the other side.
-    // The CM33 owns USART6, which carries nothing in the virtual-COM
-    // configuration, so its front-end is not on the path to a single reading —
-    // which is why this runs after the sensing pipeline is up, is off unless a
-    // board asks for it, and treats silence as a warning. A CM33 that is
-    // unflashed, held in reset, or simply slow must not cost the sensing half
-    // anything, and before the timeout it could stall start-up indefinitely.
-    if config.mcu.link_check {
-        check_cm33_link(
-            &mut context,
-            Duration::from_millis(config.mcu.link_check_timeout_ms),
-        )
-        .await;
-    }
-
     let mut status_tick = tokio::time::interval(STATUS_PERIOD);
     let mut actuator_tick = tokio::time::interval(ACTUATOR_PERIOD);
     let mut last_vitals_at: Option<Instant> = None;
-
-    // The latest record of each on-demand stream, replayed with the `SNAPSHOT`
-    // flag when a client asks for one (`PROTOCOL.md` §12). They start at the
-    // warming-up defaults because a snapshot taken before the first reading
-    // still has to answer with a decodable message rather than nothing — the
-    // ESP32-C5 synthesises one from its (initially warming-up) sample the same
-    // way.
-    let mut last_vitals = (Vitals::warming_up(), 0u8);
-    let mut last_fatigue = Fatigue::warming_up(config.fatigue.revision);
 
     // The fatigue → inflation-speed model: which deformation mode the current
     // fatigue level calls for, how fast to approach it, and the hysteresis and
@@ -293,154 +241,6 @@ async fn main(mut context: Context) {
 
     loop {
         tokio::select! {
-            // Radar frame → indicators → Vitals (rate-limited) + Fatigue.
-            Some(event) = frame_rx.recv() => {
-                let RadarEvent::Frame(frame) = event else {
-                    accounting.note_radar_gap();
-                    continue;
-                };
-                if let Some(temperature_c) = frame
-                    .temperature_stats
-                    .as_ref()
-                    .and_then(|stats| stats.processor_temperature_c())
-                {
-                    accounting.set_processor_temp_c(f32::from(temperature_c));
-                }
-                let now = Instant::now();
-                let snapshot = indicators.update(now, &frame);
-
-                let vitals_due = last_vitals_at
-                    .is_none_or(|last| now.duration_since(last) >= vitals_period(stream_state.vitals_hz));
-                if !vitals_due {
-                    continue;
-                }
-                last_vitals_at = Some(now);
-
-                // Mapped unconditionally so a snapshot request answers with the
-                // current reading even while the stream is switched off.
-                let mapped = map::vitals(&snapshot);
-                last_vitals = (mapped.payload, mapped.header_flags);
-                if stream_state.stream_mask & streams::VITALS != 0 {
-                    if let Err(e) = ble.publish(Telemetry::Vitals(mapped.payload), mapped.header_flags).await {
-                        tracing::warn!("snf-app: vitals publish failed: {e}");
-                    }
-                }
-
-                // Fatigue drives both the BLE record and the pneumatics, so it
-                // runs whether or not anyone is subscribed to that stream.
-                if let Some(model) = fatigue_model.as_mut() {
-                    match model.infer(&features.update(now, &snapshot)) {
-                        Ok(verdict) => {
-                            // How sure the model is decides how much of the
-                            // verdict reaches the actuators. Below the floor the
-                            // controller is told nothing at all, so its own
-                            // `verdict_timeout` pins the sections to neutral —
-                            // an uncertain model makes the mat quieter, never
-                            // busier. See `snf_bridge::confidence`.
-                            match confidence::gate(verdict) {
-                                Trust::Applied { level, weight } => {
-                                    if withholding {
-                                        tracing::info!(
-                                            "snf-app: verdicts trusted again (confidence {:.2})",
-                                            verdict.confidence,
-                                        );
-                                        withholding = false;
-                                    }
-                                    tracing::trace!(
-                                        "snf-app: fatigue {} x {weight:.2} -> {level}",
-                                        verdict.level,
-                                    );
-                                    inflation.observe(now, level);
-                                }
-                                Trust::Withheld { reported_level } => {
-                                    // Logged on the transition only: at the
-                                    // vitals rate this would otherwise be two
-                                    // lines a second for as long as the radar
-                                    // cannot see well enough to be sure.
-                                    if !withholding {
-                                        tracing::info!(
-                                            "snf-app: withholding verdicts \
-                                             (level {reported_level}, confidence {:.2} < {:.2}); \
-                                             not actuating",
-                                            verdict.confidence,
-                                            confidence::ACTION_FLOOR,
-                                        );
-                                        withholding = true;
-                                    }
-                                }
-                            }
-
-                            // Published either way, with `LOW_CONFIDENCE` set
-                            // when it was withheld — a client should see what
-                            // the model thought *and* that the device did not
-                            // act on it.
-                            let payload =
-                                map::fatigue_telemetry(verdict, config.fatigue.revision);
-                            last_fatigue = payload;
-                            if stream_state.stream_mask & streams::FATIGUE != 0 {
-                                if let Err(e) = ble.publish(Telemetry::Fatigue(payload), 0).await {
-                                    tracing::warn!("snf-app: fatigue publish failed: {e}");
-                                }
-                            }
-                        }
-                        Err(e) => tracing::warn!("snf-app: inference failed: {e}"),
-                    }
-                }
-            }
-
-            // Stream Control request from a BLE client.
-            Some(request) = control.recv() => {
-                let response = stream_state.apply(&request, DEVICE_CAPABILITIES, MAX_POINTS);
-                accounting.active_streams = stream_state.stream_mask;
-
-                // `REQUEST_SNAPSHOT` has to actually deliver the frames — the
-                // response only reports which streams were servable. Gated on
-                // the active mask, so a snapshot never revives a stream the
-                // client turned off (`PROTOCOL.md` §12).
-                if let ControlOp::RequestSnapshot(mask) = request.op {
-                    let due = mask & stream_state.stream_mask;
-                    if due & streams::STATUS != 0 {
-                        let payload = accounting.snapshot();
-                        if let Err(e) = ble
-                            .publish(Telemetry::Status(payload), header_flags::SNAPSHOT)
-                            .await
-                        {
-                            tracing::warn!("snf-app: status snapshot failed: {e}");
-                        }
-                    }
-                    if due & streams::VITALS != 0 {
-                        let (payload, flags) = last_vitals;
-                        if let Err(e) = ble
-                            .publish(Telemetry::Vitals(payload), flags | header_flags::SNAPSHOT)
-                            .await
-                        {
-                            tracing::warn!("snf-app: vitals snapshot failed: {e}");
-                        }
-                    }
-                    if due & streams::FATIGUE != 0 {
-                        if let Err(e) = ble
-                            .publish(Telemetry::Fatigue(last_fatigue), header_flags::SNAPSHOT)
-                            .await
-                        {
-                            tracing::warn!("snf-app: fatigue snapshot failed: {e}");
-                        }
-                    }
-                }
-
-                if let Err(e) = ble.respond(response).await {
-                    tracing::warn!("snf-app: control response failed: {e}");
-                }
-            }
-
-            // Device Status notify (1 Hz).
-            _ = status_tick.tick() => {
-                if stream_state.stream_mask & streams::STATUS != 0 {
-                    if let Err(e) = ble.publish(Telemetry::Status(accounting.snapshot()), 0).await {
-                        tracing::warn!("snf-app: status publish failed: {e}");
-                    }
-                }
-            }
-
             // Apply the actuator state. On its own tick rather than inline with
             // the fatigue verdict, so the budgets, the charge ceiling and the
             // release dwell all keep running — and a stale verdict still pins
@@ -482,43 +282,6 @@ async fn main(mut context: Context) {
                 }
             }
         }
-    }
-}
-
-/// Ping the CM33 once and log its reply, so a shared-memory link with nothing
-/// behind it shows up at start-up rather than the first time something needs it.
-///
-/// Every outcome is advisory. The CM33's front-end serves a wiring this build
-/// does not use, so no answer is a warning and never a reason to stop: a board
-/// whose CM33 is unflashed or held in reset still senses, classifies, actuates
-/// and publishes exactly as before.
-///
-/// `streaming: false` parks that front-end: nothing is wired to USART6 in the
-/// virtual-COM configuration, so there is no reason for it to spin. The transfer
-/// is a strict pull (see `crates/mcu`), so a CM33 that never hears this simply
-/// stays idle in `recv` — skipping the check leaves nothing running.
-async fn check_cm33_link(context: &mut Context, timeout: Duration) {
-    let request = RadarControl {
-        seq: 0,
-        streaming: false,
-    };
-    if let Err(e) = context.ipc_shm.radar.send(&request).await {
-        tracing::warn!("snf-app: CM33 link check send failed: {e}");
-        return;
-    }
-    // Abandoning `recv` mid-flight is safe only because this is the sole reader
-    // of the channel and it runs exactly once: nothing later depends on where a
-    // cancelled receive left off.
-    match tokio::time::timeout(timeout, context.ipc_shm.radar.recv()).await {
-        Ok(Ok(message)) => {
-            let report: RadarReport = message.into_inner();
-            tracing::info!("snf-app: CM33 link up (report seq={})", report.seq);
-        }
-        Ok(Err(e)) => tracing::warn!("snf-app: CM33 link check recv failed: {e}"),
-        Err(_) => tracing::warn!(
-            "snf-app: no CM33 reply within {} ms; continuing without the USART6 front-end",
-            timeout.as_millis()
-        ),
     }
 }
 

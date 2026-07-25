@@ -32,7 +32,7 @@ snf-ble     = { path = "../ble" }
 # `ort` turns on real ONNX inference. It is off by default in `snf-fatigue` so
 # that crate stays checkable on a macOS dev host; this is the build that has an
 # ONNX Runtime, so this is where it goes on.
-snf-fatigue = { path = "../fatigue", features = ["ort"] }
+snf-fatigue = { path = "../fatigue" }
 snf-bridge  = { path = "../bridge" }
 
 # Named directly by the generated `consortium.gen.rs`.
