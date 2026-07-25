@@ -744,8 +744,8 @@ function CoreDashboard({ telemetry }: { telemetry: Telemetry }) {
         {[
           {
             label: t('status.metric.presence'),
-            value: t(telemetry.hasSpatialData ? 'common.detected' : 'common.waitingForData'),
-            dot: telemetry.hasSpatialData ? T.brand : null,
+            value: t(telemetry.hasPresence ? 'common.detected' : 'common.waitingForData'),
+            dot: telemetry.hasPresence ? T.brand : null,
           },
           {
             label: t('status.metric.deviceTemperature'),
@@ -909,7 +909,7 @@ function WorkPage({
           respirationConfidence: telemetry.respirationConfidence,
           qualityLabel: telemetry.qualityLabel,
           motionLabel: telemetry.motionLabel,
-          hasSpatialData: telemetry.hasSpatialData,
+          hasSpatialData: telemetry.hasPresence,
           processorTemperature: telemetry.processorTemperature,
         }}
       />

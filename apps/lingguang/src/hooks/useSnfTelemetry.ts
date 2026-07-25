@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { SnfErrorCode } from '@/lib/snfErrors'
+import {
+  configureRadarWebSerial,
+  openRadarDataWebSerial,
+  type RadarSerialFrame,
+  type RadarWebSerialConnection,
+} from '@/lib/radarWebSerial'
+import { SNF_ERROR_TRANSLATIONS, type SnfErrorCode } from '@/lib/snfErrors'
 import {
   decodeDeviceStatus,
   decodePointCloud,
@@ -17,16 +23,18 @@ import {
   type Vitals,
 } from '@/lib/snfProtocol'
 
-type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'unsupported'
+type ConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'selecting-data'
+  | 'connected'
+  | 'reconnecting'
+  | 'unsupported'
 type QualityLabel = 'calibrating' | 'interference' | 'excellent' | 'good' | 'low'
+type ConnectionMethod = 'bluetooth' | 'serial'
 
 const EMPTY_POINTS = new Float32Array(0)
 const HISTORY_LENGTH = 58
-
-function eventValue(event: Event): DataView | null {
-  const characteristic = event.target as BluetoothRemoteGATTCharacteristic | null
-  return characteristic?.value ?? null
-}
 
 function normalizeHistory(values: number[]): number[] {
   if (values.length < 2) return []
@@ -36,32 +44,85 @@ function normalizeHistory(values: number[]): number[] {
   return values.map((value) => ((value - min) / span) * 1.6 - 0.8)
 }
 
+function eventValue(event: Event): DataView | null {
+  const characteristic = event.target as BluetoothRemoteGATTCharacteristic | null
+  return characteristic?.value ?? null
+}
+
+function connectionErrorCode(error: unknown, fallback: SnfErrorCode): SnfErrorCode {
+  if (error instanceof Error && error.message in SNF_ERROR_TRANSLATIONS) {
+    return error.message as SnfErrorCode
+  }
+  if (error instanceof DOMException) {
+    if (error.name === 'NotFoundError') return 'connectionCancelled'
+    if (error.name === 'SecurityError') return 'devicePermissionDenied'
+    if (error.name === 'InvalidStateError' || error.name === 'NetworkError') {
+      return 'serialPortBusy'
+    }
+  }
+  return fallback
+}
+
 export function useSnfTelemetry(paused: boolean) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
-  const [protocolInfo, setProtocolInfo] = useState<ProtocolInfo | null>(null)
-  const [status, setStatus] = useState<DeviceStatus | null>(null)
   const [vitals, setVitals] = useState<Vitals | null>(null)
   const [points, setPoints] = useState<Float32Array>(EMPTY_POINTS)
+  const [targetPoints, setTargetPoints] = useState<Float32Array>(EMPTY_POINTS)
   const [lastVitalsAt, setLastVitalsAt] = useState(0)
   const [heartHistory, setHeartHistory] = useState<number[]>([])
   const [respirationHistory, setRespirationHistory] = useState<number[]>([])
   const [breathingPhase, setBreathingPhase] = useState(0)
   const [clock, setClock] = useState(Date.now())
   const [error, setError] = useState<SnfErrorCode | ''>('')
-
-  const deviceRef = useRef<BluetoothDevice | null>(null)
-  const controlRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
+  const [protocolInfo, setProtocolInfo] = useState<ProtocolInfo | null>(null)
+  const [status, setStatus] = useState<DeviceStatus | null>(null)
+  const [processorTemperature, setProcessorTemperature] = useState<number | null>(null)
+  const [connectionMethod, setConnectionMethod] = useState<ConnectionMethod | null>(null)
+  const serialConnectionRef = useRef<RadarWebSerialConnection | null>(null)
+  const radarConfiguredRef = useRef(false)
+  const bluetoothDeviceRef = useRef<BluetoothDevice | null>(null)
+  const bluetoothControlRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null)
   const assemblerRef = useRef(new TelemetryAssembler())
-  const manualDisconnectRef = useRef(false)
-  const reconnectAttemptRef = useRef(0)
-  const reconnectTimerRef = useRef<number | null>(null)
   const requestIdRef = useRef(0)
   const capabilitiesRef = useRef(0)
   const pausedRef = useRef(paused)
-  const scheduleReconnectRef = useRef<(device: BluetoothDevice) => void>(() => undefined)
   pausedRef.current = paused
 
-  const consume = useCallback((value: DataView) => {
+  const consumeFrame = useCallback((frame: RadarSerialFrame) => {
+    if (pausedRef.current) return
+    const reading = frame.vitals[0]
+    if (reading !== undefined) {
+      const hasSubject = reading.breathingDeviation > 0
+      const heartValid = hasSubject && reading.heartRateBpm > 0
+      const respirationValid =
+        hasSubject && reading.breathingDeviation >= 0.02 && reading.breathingRateBpm > 0
+      setVitals({
+        subjectId: hasSubject ? reading.subjectId : null,
+        statusFlags:
+          (hasSubject ? SnfStatusFlag.subjectTracked : 0) |
+          (heartValid ? SnfStatusFlag.heartValid : 0) |
+          (respirationValid ? SnfStatusFlag.respirationValid : 0),
+        heartRate: heartValid ? reading.heartRateBpm : null,
+        respirationRate: respirationValid ? reading.breathingRateBpm : null,
+        heartConfidence: heartValid ? 100 : 0,
+        respirationConfidence: respirationValid ? 100 : 0,
+        activityConfidence: hasSubject || frame.points.length > 0 ? 100 : 0,
+        stale: false,
+        degraded: false,
+      })
+      setLastVitalsAt(frame.receivedAt)
+      setHeartHistory((values) => [...values, ...reading.heartWaveform].slice(-HISTORY_LENGTH))
+      setRespirationHistory((values) =>
+        [...values, ...reading.breathWaveform].slice(-HISTORY_LENGTH),
+      )
+    }
+    setPoints(Float32Array.from(frame.points.flatMap((point) => [point.x, point.y, point.z])))
+    setTargetPoints(
+      Float32Array.from(frame.targets.flatMap((target) => [target.x, target.y, target.z])),
+    )
+  }, [])
+
+  const consumeBluetooth = useCallback((value: DataView) => {
     const message = assemblerRef.current.push(value)
     if (message === null) return
     if (message.messageType === 0x10) {
@@ -93,16 +154,16 @@ export function useSnfTelemetry(paused: boolean) {
     }
   }, [])
 
-  const onNotification = useCallback(
+  const onBluetoothNotification = useCallback(
     (event: Event) => {
       const value = eventValue(event)
-      if (value !== null && !pausedRef.current) consume(value)
+      if (value !== null && !pausedRef.current) consumeBluetooth(value)
     },
-    [consume],
+    [consumeBluetooth],
   )
 
-  const applyStreams = useCallback(async (isPaused: boolean) => {
-    const control = controlRef.current
+  const applyBluetoothStreams = useCallback(async (isPaused: boolean) => {
+    const control = bluetoothControlRef.current
     if (control === null) return
     let mask = SnfStream.status
     if (!isPaused) {
@@ -113,15 +174,26 @@ export function useSnfTelemetry(paused: boolean) {
     await control.writeValueWithResponse(makeSetStreamsRequest(requestIdRef.current, mask))
   }, [])
 
-  const openConnection = useCallback(
-    async (device: BluetoothDevice) => {
+  const connectBluetooth = useCallback(async () => {
+    if (navigator.bluetooth === undefined) {
+      setConnectionState('unsupported')
+      setError('bluetoothUnsupported')
+      throw new Error('bluetoothUnsupported')
+    }
+    setConnectionState('connecting')
+    setError('')
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SNF_UUIDS.service] }],
+      })
       const server = device.gatt
       if (server === undefined) throw new Error('gattUnsupported')
       await server.connect()
+      bluetoothDeviceRef.current = device
       device.addEventListener(
         'gattserverdisconnected',
         () => {
-          scheduleReconnectRef.current(device)
+          if (bluetoothDeviceRef.current !== null) setConnectionState('reconnecting')
         },
         { once: true },
       )
@@ -135,82 +207,105 @@ export function useSnfTelemetry(paused: boolean) {
       const control = await service.getCharacteristic(SNF_UUIDS.streamControl)
       const statusCharacteristic = await service.getCharacteristic(SNF_UUIDS.deviceStatus)
       const vitalsCharacteristic = await service.getCharacteristic(SNF_UUIDS.vitals)
-      controlRef.current = control
+      bluetoothControlRef.current = control
       await control.startNotifications()
       await statusCharacteristic.startNotifications()
       await vitalsCharacteristic.startNotifications()
-      statusCharacteristic.addEventListener('characteristicvaluechanged', onNotification)
-      vitalsCharacteristic.addEventListener('characteristicvaluechanged', onNotification)
-      consume(await statusCharacteristic.readValue())
-      consume(await vitalsCharacteristic.readValue())
-
+      statusCharacteristic.addEventListener('characteristicvaluechanged', onBluetoothNotification)
+      vitalsCharacteristic.addEventListener('characteristicvaluechanged', onBluetoothNotification)
+      consumeBluetooth(await statusCharacteristic.readValue())
+      consumeBluetooth(await vitalsCharacteristic.readValue())
       if ((info.capabilities & SnfCapability.pointCloud) !== 0) {
         const pointCharacteristic = await service.getCharacteristic(SNF_UUIDS.pointCloud)
         await pointCharacteristic.startNotifications()
-        pointCharacteristic.addEventListener('characteristicvaluechanged', onNotification)
-      } else {
-        setPoints(EMPTY_POINTS)
+        pointCharacteristic.addEventListener('characteristicvaluechanged', onBluetoothNotification)
       }
-      reconnectAttemptRef.current = 0
+      setConnectionMethod('bluetooth')
       setConnectionState('connected')
-      setError('')
-    },
-    [consume, onNotification],
-  )
-
-  const scheduleReconnect = useCallback(
-    (device: BluetoothDevice) => {
-      if (manualDisconnectRef.current || reconnectAttemptRef.current >= 3) {
-        setConnectionState('idle')
-        return
-      }
-      setConnectionState('reconnecting')
-      const delay = 1000 * 2 ** reconnectAttemptRef.current
-      reconnectAttemptRef.current += 1
-      reconnectTimerRef.current = window.setTimeout(() => {
-        void openConnection(device).catch(() => {
-          scheduleReconnect(device)
-        })
-      }, delay)
-    },
-    [openConnection],
-  )
-  scheduleReconnectRef.current = scheduleReconnect
-
-  const connect = useCallback(async () => {
-    if (navigator.bluetooth === undefined) {
-      setConnectionState('unsupported')
-      throw new Error('bluetoothUnsupported')
+    } catch (connectError) {
+      setConnectionState('idle')
+      setError(connectionErrorCode(connectError, 'bluetoothConnection'))
+      throw connectError
     }
-    manualDisconnectRef.current = false
+  }, [consumeBluetooth, onBluetoothNotification])
+
+  const configureSerial = useCallback(async () => {
+    if (navigator.serial === undefined) {
+      setConnectionState('unsupported')
+      setError('serialUnsupported')
+      throw new Error('serialUnsupported')
+    }
     setConnectionState('connecting')
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SNF_UUIDS.service] }],
-    })
-    deviceRef.current = device
-    await openConnection(device)
-  }, [openConnection])
+    setError('')
+    try {
+      await configureRadarWebSerial()
+      radarConfiguredRef.current = true
+      setConnectionState('selecting-data')
+    } catch (connectError) {
+      setConnectionState('idle')
+      setError(connectionErrorCode(connectError, 'radarConfiguration'))
+      throw connectError
+    }
+  }, [])
+
+  const connectSerialData = useCallback(async () => {
+    if (!radarConfiguredRef.current) throw new Error('radarConfiguration')
+    setConnectionState('connecting')
+    setError('')
+    try {
+      serialConnectionRef.current = await openRadarDataWebSerial({
+        onFrame: consumeFrame,
+        onError: () => {
+          setConnectionState('reconnecting')
+          setError('streamConfiguration')
+        },
+      })
+      setProtocolInfo({
+        capabilities: SnfCapability.vitals | SnfCapability.pointCloud,
+        maxPointCount: 1024,
+        maxPoseJoints: 0,
+        maxSubjects: 2,
+        bootId: 0,
+        buildId: 0,
+      })
+      setProcessorTemperature(null)
+      setConnectionMethod('serial')
+      setConnectionState('connected')
+    } catch (connectError) {
+      setConnectionState('selecting-data')
+      setError(connectionErrorCode(connectError, 'serialOpenFailed'))
+      throw connectError
+    }
+  }, [consumeFrame])
 
   const disconnect = useCallback(() => {
-    manualDisconnectRef.current = true
-    if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current)
-    deviceRef.current?.gatt?.disconnect()
-    controlRef.current = null
+    const serialConnection = serialConnectionRef.current
+    serialConnectionRef.current = null
+    void serialConnection?.close()
+    bluetoothDeviceRef.current?.gatt?.disconnect()
+    bluetoothDeviceRef.current = null
+    bluetoothControlRef.current = null
     assemblerRef.current.clear()
     setConnectionState('idle')
-    setProtocolInfo(null)
-    setStatus(null)
     setVitals(null)
     setPoints(EMPTY_POINTS)
+    setTargetPoints(EMPTY_POINTS)
     setLastVitalsAt(0)
+    setProtocolInfo(null)
+    setStatus(null)
+    setProcessorTemperature(null)
+    setConnectionMethod(null)
+    setError('')
+    setHeartHistory([])
+    setRespirationHistory([])
   }, [])
 
   useEffect(() => {
-    if (connectionState !== 'connected') return
-    void applyStreams(paused).catch(() => {
+    if (connectionState !== 'connected' || connectionMethod !== 'bluetooth') return
+    void applyBluetoothStreams(paused).catch(() => {
       setError('streamConfiguration')
     })
-  }, [applyStreams, connectionState, paused])
+  }, [applyBluetoothStreams, connectionMethod, connectionState, paused])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -234,9 +329,11 @@ export function useSnfTelemetry(paused: boolean) {
 
   useEffect(
     () => () => {
-      manualDisconnectRef.current = true
-      if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current)
-      deviceRef.current?.gatt?.disconnect()
+      const serialConnection = serialConnectionRef.current
+      serialConnectionRef.current = null
+      void serialConnection?.close()
+      bluetoothDeviceRef.current?.gatt?.disconnect()
+      bluetoothDeviceRef.current = null
     },
     [],
   )
@@ -250,7 +347,11 @@ export function useSnfTelemetry(paused: boolean) {
   const respirationValid =
     ((vitals?.statusFlags ?? 0) & SnfStatusFlag.respirationValid) !== 0 && !stale
   const hasSpatialData = points.length > 0
-
+  const hasTrackedTargets = targetPoints.length > 0
+  const hasPresence =
+    hasSpatialData ||
+    hasTrackedTargets ||
+    (!hidden && ((vitals?.statusFlags ?? 0) & SnfStatusFlag.subjectTracked) !== 0)
   const qualityLabel: QualityLabel = warming
     ? 'calibrating'
     : motion || vitals?.degraded === true
@@ -265,7 +366,11 @@ export function useSnfTelemetry(paused: boolean) {
     () => ({
       connectionState,
       connected: connectionState === 'connected',
-      connect,
+      awaitingDataPort: connectionState === 'selecting-data',
+      connectionMethod,
+      connectBluetooth,
+      configureSerial,
+      connectSerialData,
       disconnect,
       error,
       heartRate: !hidden && heartValid ? (vitals?.heartRate ?? null) : null,
@@ -274,9 +379,15 @@ export function useSnfTelemetry(paused: boolean) {
       respirationConfidence: vitals?.respirationConfidence ?? 0,
       qualityLabel,
       motionLabel: motion ? 'high' : 'low',
-      processorTemperature: status?.processorTemperature ?? null,
+      processorTemperature:
+        connectionMethod === 'bluetooth'
+          ? (status?.processorTemperature ?? null)
+          : processorTemperature,
       points,
+      targetPoints,
       hasSpatialData,
+      hasTrackedTargets,
+      hasPresence,
       breathingPhase,
       heartWave: normalizeHistory(heartHistory),
       breathWave: normalizeHistory(respirationHistory),
@@ -286,7 +397,10 @@ export function useSnfTelemetry(paused: boolean) {
     }),
     [
       breathingPhase,
-      connect,
+      connectBluetooth,
+      connectSerialData,
+      configureSerial,
+      connectionMethod,
       connectionState,
       disconnect,
       error,
@@ -295,6 +409,7 @@ export function useSnfTelemetry(paused: boolean) {
       hidden,
       motion,
       points,
+      targetPoints,
       protocolInfo,
       qualityLabel,
       respirationHistory,

@@ -13,6 +13,14 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
   const controllerRef = useRef<AbortController | null>(null)
   const displayTimerRef = useRef<number | null>(null)
   const snapshotRef = useRef(snapshot)
+  const analysisTrigger = [
+    snapshot.connected ? 'connected' : 'disconnected',
+    snapshot.hasSpatialData ? 'present' : 'absent',
+    snapshot.heartRate === null ? 'heart-unavailable' : 'heart-available',
+    snapshot.respirationRate === null ? 'respiration-unavailable' : 'respiration-available',
+    snapshot.qualityLabel,
+    snapshot.motionLabel,
+  ].join('|')
 
   useEffect(() => {
     snapshotRef.current = snapshot
@@ -84,7 +92,7 @@ export function AiInsightCard({ snapshot }: { snapshot: AnalysisSnapshot }) {
       controllerRef.current?.abort()
       if (displayTimerRef.current !== null) window.clearTimeout(displayTimerRef.current)
     }
-  }, [generate])
+  }, [analysisTrigger, generate])
 
   return (
     <Card

@@ -7,10 +7,12 @@ import { useTranslation } from '@/i18n'
 
 type PointCloudViewProps = {
   points: Float32Array
+  targetPoints: Float32Array
   breathingPhase: number
   paused: boolean
   viewResetKey: number
   hasSpatialData: boolean
+  hasPresence: boolean
 }
 
 function RadarPoints({ points, paused }: Pick<PointCloudViewProps, 'points' | 'paused'>) {
@@ -65,12 +67,26 @@ function BodyGuide({ breathingPhase }: Pick<PointCloudViewProps, 'breathingPhase
   )
 }
 
+function TargetMarkers({ points }: { points: Float32Array }) {
+  if (points.length === 0) return null
+  return (
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[points, 3]} />
+      </bufferGeometry>
+      <pointsMaterial size={0.16} color="#315fd1" sizeAttenuation transparent opacity={0.95} />
+    </points>
+  )
+}
+
 export function PointCloudView({
   points,
+  targetPoints,
   breathingPhase,
   paused,
   viewResetKey,
   hasSpatialData,
+  hasPresence,
 }: PointCloudViewProps) {
   const { t } = useTranslation('translation')
   return (
@@ -89,7 +105,8 @@ export function PointCloudView({
         <gridHelper args={[7, 28, '#9db8ea', '#cbdcf4']} position={[0, -1.15, 0]} />
         <group rotation={[-Math.PI / 2, 0, 0]}>
           {hasSpatialData && <RadarPoints points={points} paused={paused} />}
-          {hasSpatialData && <BodyGuide breathingPhase={breathingPhase} />}
+          <TargetMarkers points={targetPoints} />
+          {hasPresence && <BodyGuide breathingPhase={breathingPhase} />}
         </group>
         <OrbitControls
           key={viewResetKey}

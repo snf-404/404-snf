@@ -14,6 +14,7 @@ import { useTranslation } from '@/i18n'
 import type { Locale } from '@/i18n'
 import type { TranslationKey } from '@/i18n/resources'
 import { SNF_ERROR_TRANSLATIONS } from '@/lib/snfErrors'
+import { DeviceConnectionDialog } from '@/repose/DeviceConnectionDialog'
 
 const cardShadow = 'shadow-[0_6px_18px_rgba(45,70,125,.06),inset_0_1px_0_rgba(255,255,255,.75)]'
 
@@ -45,17 +46,26 @@ function DeviceRow({
   sub,
   status,
   ok,
+  onClick,
+  testId,
   last = false,
 }: {
   label: string
   sub: string
   status: string
   ok: boolean
+  onClick: () => void
+  testId: string
   last?: boolean
 }) {
   return (
     <>
-      <div className="flex items-center justify-between py-[13px]">
+      <button
+        type="button"
+        data-testid={testId}
+        onClick={onClick}
+        className="flex w-full items-center justify-between py-[13px] text-left"
+      >
         <div>
           <div className="text-sm text-[#43516a]">{label}</div>
           <div className="mt-0.5 text-[11px] text-[#9ba8bb]">{sub}</div>
@@ -63,8 +73,9 @@ function DeviceRow({
         <div className="flex items-center gap-2">
           <span className={`text-xs ${ok ? 'text-[#5278e8]' : 'text-[#c43e3e]'}`}>{status}</span>
           <StatusDot ok={ok} />
+          <ChevronRight size={16} className="text-[#9ba8bb]" />
         </div>
-      </div>
+      </button>
       {!last && <Separator />}
     </>
   )
@@ -121,18 +132,13 @@ function SettingRow({
 interface DeviceTabProps {
   telemetry: ReturnType<typeof useSnfTelemetry>
   paused: boolean
-  onRequestConnection: () => void
   onTogglePaused: () => void
 }
 
-export function DeviceTab({
-  telemetry,
-  paused,
-  onRequestConnection,
-  onTogglePaused,
-}: DeviceTabProps) {
+export function DeviceTab({ telemetry, paused, onTogglePaused }: DeviceTabProps) {
   const [autoAdjust, setAutoAdjust] = useState(true)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [selectedDevice, setSelectedDevice] = useState<'radar' | 'pneumatic' | null>(null)
   const { t, i18n } = useTranslation('translation')
   const locale: Locale = i18n.resolvedLanguage === 'en-US' ? 'en-US' : 'zh-CN'
 
@@ -170,25 +176,25 @@ export function DeviceTab({
       <SettingsCard title={t('device.connection.title')}>
         <DeviceRow
           label={t('device.connection.radar')}
-          sub="BLE · SNF Protocol"
+          sub={t('device.connection.serialHint')}
           status={t(telemetry.connected ? 'common.connected' : 'common.disconnected')}
           ok={telemetry.connected}
+          testId="open-radar-connection"
+          onClick={() => {
+            setSelectedDevice('radar')
+          }}
         />
         <DeviceRow
           label={t('device.connection.pneumatic')}
           sub={t('device.connection.airCoreReserved')}
           status={t('common.pending')}
           ok={false}
+          testId="open-pneumatic-connection"
+          onClick={() => {
+            setSelectedDevice('pneumatic')
+          }}
           last
         />
-        <Button
-          data-testid="connect-device"
-          onClick={onRequestConnection}
-          variant={telemetry.connected ? 'outline' : 'default'}
-          className="my-2 mb-1 w-full"
-        >
-          {t(telemetry.connected ? 'device.connection.disconnect' : 'device.connection.connect')}
-        </Button>
       </SettingsCard>
 
       <SettingsCard title={t('device.stream.title')}>
@@ -325,6 +331,14 @@ export function DeviceTab({
       <div className="py-2 pb-1 text-center text-[11px] tracking-[.04em] text-[#9ba8bb]">
         {t('device.footer')}
       </div>
+      <DeviceConnectionDialog
+        device={selectedDevice}
+        open={selectedDevice !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDevice(null)
+        }}
+        telemetry={telemetry}
+      />
     </div>
   )
 }

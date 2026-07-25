@@ -3,8 +3,7 @@ import { useState } from 'react'
 
 import './App.css'
 import { useSnfTelemetry } from '@/hooks/useSnfTelemetry'
-import { I18nProvider, useTranslation } from '@/i18n'
-import { getSnfErrorTranslation } from '@/lib/snfErrors'
+import { I18nProvider } from '@/i18n'
 import { BottomNav, type Tab } from '@/repose/BottomNav'
 import { DeviceTab } from '@/repose/DeviceTab'
 import { StatusTab, type StatusState } from '@/repose/StatusTab'
@@ -14,30 +13,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>('status')
   const [statusState, setStatusState] = useState<StatusState>('work')
   const [paused, setPaused] = useState(false)
-  const [notice, setNotice] = useState('')
   const telemetry = useSnfTelemetry(paused)
-  const { t } = useTranslation('translation')
-
-  const showNotice = (message: string) => {
-    setNotice(message)
-    window.setTimeout(() => {
-      setNotice('')
-    }, 3600)
-  }
-
-  const requestConnection = async () => {
-    if (telemetry.connected) {
-      telemetry.disconnect()
-      showNotice(t('notice.disconnected'))
-      return
-    }
-    try {
-      await telemetry.connect()
-      showNotice(t('notice.connected'))
-    } catch (error: unknown) {
-      showNotice(t(getSnfErrorTranslation(error)))
-    }
-  }
 
   return (
     <div id="container" className="repose-stage">
@@ -64,9 +40,6 @@ function AppContent() {
                 <DeviceTab
                   telemetry={telemetry}
                   paused={paused}
-                  onRequestConnection={() => {
-                    void requestConnection()
-                  }}
                   onTogglePaused={() => {
                     setPaused((value) => !value)
                   }}
@@ -78,20 +51,6 @@ function AppContent() {
 
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
-
-      <AnimatePresence>
-        {notice !== '' && (
-          <motion.div
-            className="toast"
-            role="status"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
-            {notice}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }

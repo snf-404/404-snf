@@ -570,12 +570,14 @@ export function SensingDetailPage({ telemetry, onClose }: SensingDetailPageProps
         >
           <PointCloudView
             points={telemetry.points}
+            targetPoints={telemetry.targetPoints}
             breathingPhase={telemetry.breathingPhase}
             paused={false}
             viewResetKey={0}
             hasSpatialData={telemetry.hasSpatialData}
+            hasPresence={telemetry.hasPresence}
           />
-          {!telemetry.hasSpatialData && (
+          {!telemetry.hasSpatialData && !telemetry.hasPresence && (
             <div
               style={{
                 position: 'absolute',
@@ -592,6 +594,11 @@ export function SensingDetailPage({ telemetry, onClose }: SensingDetailPageProps
                   ? 'sensing.pointCloud.waiting'
                   : 'sensing.pointCloud.connectPrompt',
               )}
+            </div>
+          )}
+          {!telemetry.hasSpatialData && telemetry.hasPresence && (
+            <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/75 px-3 py-1 text-[11px] text-[#7c8aa2] backdrop-blur">
+              {t('sensing.pointCloud.targetOnly')}
             </div>
           )}
         </Card>

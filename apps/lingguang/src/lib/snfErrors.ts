@@ -6,6 +6,18 @@ export const SNF_ERROR_TRANSLATIONS = {
   streamConfiguration: 'error.streamConfiguration',
   invalidProtocolDescriptor: 'error.invalidProtocolDescriptor',
   incompatibleProtocol: 'error.incompatibleProtocol',
+  serialUnsupported: 'error.serialUnsupported',
+  serialUnavailable: 'error.serialUnavailable',
+  serialClosed: 'error.serialClosed',
+  radarConfiguration: 'error.radarConfiguration',
+  connectionCancelled: 'error.connectionCancelled',
+  devicePermissionDenied: 'error.devicePermissionDenied',
+  serialPortBusy: 'error.serialPortBusy',
+  serialOpenFailed: 'error.serialOpenFailed',
+  serialWrongCliPort: 'error.serialWrongCliPort',
+  serialWrongDataPort: 'error.serialWrongDataPort',
+  serialSamePort: 'error.serialSamePort',
+  bluetoothConnection: 'error.bluetoothConnection',
 } as const satisfies Record<string, TranslationKey>
 
 export type SnfErrorCode = keyof typeof SNF_ERROR_TRANSLATIONS
