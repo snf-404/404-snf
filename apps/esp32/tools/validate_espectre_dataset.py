@@ -98,8 +98,9 @@ def load_frames(path: pathlib.Path) -> np.ndarray:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("dataset", type=pathlib.Path,
-                        help="Path to espectre/micro-espectre/data")
+    parser.add_argument(
+        "dataset", type=pathlib.Path, help="Path to espectre/micro-espectre/data"
+    )
     parser.add_argument("--cc", default="gcc", help="Host C compiler")
     args = parser.parse_args()
 
@@ -141,7 +142,9 @@ def main() -> int:
 
         false_positive_rate = false_hits / max(idle_decisions, 1)
         recall = motion_hits / max(motion_decisions, 1)
-        print(f"paired C5 recordings: recall={recall:.3%} false_positive={false_positive_rate:.3%}")
+        print(
+            f"paired C5 recordings: recall={recall:.3%} false_positive={false_positive_rate:.3%}"
+        )
 
         if long_files:
             frames = load_frames(long_files[0])
@@ -149,7 +152,7 @@ def main() -> int:
             long_result, decisions, scores = feed(library, state, frames)
             transition = 3320
             idle = decisions[1000:transition]
-            active = decisions[transition + 100:]
+            active = decisions[transition + 100 :]
             false_runs: list[tuple[int, int]] = []
             run_start = None
             for offset, decision in enumerate(idle):

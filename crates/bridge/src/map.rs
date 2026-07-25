@@ -8,7 +8,7 @@
 //! `0..=100`. The functions never panic: out-of-range or non-finite inputs are
 //! clamped or mapped to the unavailable sentinel.
 
-use snf_fatigue::{FatigueFeatures, FatigueLevel};
+use snf_fatigue::FatigueLevel;
 use snf_radar::{IndicatorSnapshot, VitalRateEstimate, VitalStatus};
 
 use snf_ble::protocol::{
@@ -98,23 +98,20 @@ pub fn vitals(snapshot: &IndicatorSnapshot) -> MappedVitals {
     }
 }
 
-/// Extract the feature vector the fatigue model consumes (`snf-fatigue`).
-/// Missing rates default to `0.0`; the model is responsible for treating that as
-/// "no reading" rather than a real bradycardia.
-pub fn fatigue_features(snapshot: &IndicatorSnapshot) -> FatigueFeatures {
-    FatigueFeatures {
-        heart_rate_bpm: stabilized(snapshot.heart_rate.as_ref()).unwrap_or(0.0),
-        breathing_rate_bpm: stabilized(snapshot.respiration_rate.as_ref()).unwrap_or(0.0),
-        motion_energy: snapshot.activity.motion_energy_mps2,
-    }
-}
-
 /// Map a fatigue verdict to a BLE Fatigue payload (`PROTOCOL.md` §8).
 /// `model_revision` identifies the model that produced the verdict.
+///
+/// `LOW_CONFIDENCE` is set from the same predicate the actuators are gated on
+/// ([`crate::confidence::actionable`]), so what a client is told and what the
+/// mat does cannot drift apart: whenever that flag is set, the verdict was
+/// withheld from the control loop, and whenever it is clear, it was acted on.
 pub fn fatigue_telemetry(verdict: FatigueLevel, model_revision: u32) -> Fatigue {
     let mut status_flags = 0u16;
     if verdict.confidence > 0.0 {
         status_flags |= fatigue_flags::VALID;
+    }
+    if !crate::confidence::actionable(verdict.confidence) {
+        status_flags |= fatigue_flags::LOW_CONFIDENCE;
     }
     Fatigue {
         level: verdict.level.min(100),
@@ -330,7 +327,8 @@ mod tests {
         assert_eq!(f.status_flags, fatigue_flags::VALID);
         assert_eq!(f.model_revision, 0xABCD);
 
-        // Zero-confidence verdict is not marked valid.
+        // A zero-confidence verdict is neither valid nor acted on, so it
+        // carries `LOW_CONFIDENCE` and not `VALID`.
         let none = fatigue_telemetry(
             FatigueLevel {
                 level: 0,
@@ -338,19 +336,30 @@ mod tests {
             },
             1,
         );
-        assert_eq!(none.status_flags, 0);
+        assert_eq!(none.status_flags, fatigue_flags::LOW_CONFIDENCE);
     }
 
+    /// The flag a client reads and the decision the actuators make come from
+    /// one predicate; this is the test that keeps them from drifting apart.
     #[test]
-    fn features_default_missing_rates_to_zero() {
-        let snap = snapshot(
-            Some(estimate(Some(60.0), VitalStatus::Valid, 0.9)),
-            None,
-            activity(3, 0.1),
-        );
-        let features = fatigue_features(&snap);
-        assert_eq!(features.heart_rate_bpm, 60.0);
-        assert_eq!(features.breathing_rate_bpm, 0.0);
-        assert_eq!(features.motion_energy, 0.1);
+    fn low_confidence_is_flagged_exactly_when_it_is_withheld() {
+        for confidence in [0.0, 0.1, 0.29, 0.30, 0.5, 0.79, 0.8, 1.0] {
+            let payload = fatigue_telemetry(
+                FatigueLevel {
+                    level: 60,
+                    confidence,
+                },
+                1,
+            );
+            let flagged = payload.status_flags & fatigue_flags::LOW_CONFIDENCE != 0;
+            assert_eq!(
+                flagged,
+                !crate::confidence::actionable(confidence),
+                "confidence {confidence} flagged={flagged}"
+            );
+            // The level survives either way: the flag says the device did not
+            // act on the reading, not that there was no reading.
+            assert_eq!(payload.level, 60);
+        }
     }
 }

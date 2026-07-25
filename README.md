@@ -5,14 +5,8 @@ the [consortium](../consortium) framework** (a real multi-core application built
 to validate consortium's async inter-processor primitives in practice).
 
 The device senses a person with a **TI IWR6843** mmWave radar, classifies
-<<<<<<< HEAD
-**fatigue level** with an **ONNX** model, drives **pneumatic actuators** through
-the **CM33** real-time core, and exposes state over **BLE** to a Lingguang flash
-app.
-=======
 **fatigue level** with an **ONNX** model, drives **pneumatic actuators** from the
 **CA35**, and exposes state over **BLE** to a phone / Web-Bluetooth frontend.
->>>>>>> 64432a1 (feat: add cube config)
 
 > **Scaffold only.** Structure, manifests, crate skeletons, stub types, and READMEs
 > are in place; there is no complete product implementation yet. The firm inputs
@@ -29,7 +23,6 @@ project deliberately does **not** re-provision — reaches **TIM4/TIM5, the only
 PWM-capable timers that land on the 40-pin connector, from the AP alone**:
 
 ```
-<<<<<<< HEAD
         IWR6843 ──serial──►  CA35 (Linux, tokio)                 CM33 (embassy)
                              ├─ snf-radar   (pure-Rust UART + TLV indicators)
                              ├─ snf-fatigue (ONNX via consortium-ort)
@@ -37,18 +30,6 @@ PWM-capable timers that land on the 40-pin connector, from the AP alone**:
                              └─ snf-app  ◄── actuator IPC channel ──► snf-mcu
                                                                        (pump PWM,
                                                                         valves, pressure)
-=======
-  IWR6843 ──USB virtual COM──►  CA35 (Linux, tokio)
-                                ├─ snf-radar   (tokio-serial UART + TLV + indicators)
-                                ├─ snf-fatigue (ONNX via consortium-ort)
-                                ├─ snf-ble     (BlueZ) ──BLE──► apps/web (Nuxt)
-                                └─ TIM4/TIM5 PWM ──► FR120N ──► pump + vent valve
-
-                                CM33 (embassy)
-                                └─ snf-mcu ── radar IPC ──► USART6 front-end,
-                                                            retained, not the
-                                                            default source
->>>>>>> 64432a1 (feat: add cube config)
 ```
 
 The CM33 owns USART6 — RIF reaches that port from the CM33 alone — and carries a
@@ -68,7 +49,6 @@ ceiling in the control loop. See
 
 ## Layout
 
-<<<<<<< HEAD
 | Path                  | What                                                                          |
 | --------------------- | ----------------------------------------------------------------------------- |
 | `crates/shared`       | `snf-shared` — `IpcSafe` IPC message types                                    |
@@ -80,20 +60,6 @@ ceiling in the control loop. See
 | `apps/lingguang`      | React + TypeScript Lingguang flash app                                        |
 | `models/`             | 3D models (enclosure, bladder housings, radar mount)                          |
 | `hardware/pneumatics` | pump/valve/sensor BOM + CM33 pin mapping                                      |
-=======
-| Path                  | What                                                                           |
-| --------------------- | ------------------------------------------------------------------------------ |
-| `crates/shared`       | `snf-shared` — `IpcSafe` IPC types + the CM33's `no_std` TLV parser            |
-| `crates/radar`        | `snf-radar` — tokio-serial transport, TLV parser, and indicators               |
-| `crates/ble`          | `snf-ble` — BlueZ GATT peripheral via `bluer`                                  |
-| `crates/fatigue`      | `snf-fatigue` — ONNX pipeline on `consortium-ort`                              |
-| `crates/app`          | `snf-app` — CA35 Linux endpoint (excluded from workspace, pipeline-built)      |
-| `crates/mcu`          | `snf-mcu` — CM33 radar front-end (excluded from workspace, pipeline-built)     |
-| `apps/web`            | Nuxt + Web Bluetooth frontend                                                  |
-| `models/`             | 3D models (enclosure, bladder housings, radar mount)                           |
-| `hardware/pneumatics` | pump/valve/driver BOM + CA35 pin mapping                                       |
-| `hardware/dts`        | hand-maintained device-tree fragment (`csti` generates neither PWM nor pinmux) |
->>>>>>> 64432a1 (feat: add cube config)
 
 `crates/app` and `crates/mcu` are **excluded from the cargo workspace**: each
 `include!`s a `consortium.gen.rs` emitted by `csti build` and cross-compiles into

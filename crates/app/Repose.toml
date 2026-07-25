@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Runtime configuration for `snf-app`, read from the directory holding the
+# binary — `/opt/snf/app/Repose.toml`, next to `/opt/snf/app/snf-app`, under the
+# shipped systemd unit. NOT the working directory.
+#
+# This file is the checked-in **template**: every key is shown at the value
+# compiled into the binary, so a deployment can delete everything it does not
+# need to change. Copy it beside the binary and edit:
+#
+#     scp crates/app/Repose.toml root@board:/opt/snf/app/Repose.toml
+#
+# Omitting the file entirely is fine and equivalent to this exact content —
+# `snf-app` logs where it looked and runs on the defaults. A file that IS
+# present, however, must be one the binary can honour: an unknown key or an
+# unusable value stops start-up rather than silently reverting, because a
+# misspelt `pwm_hz` quietly reading 40 is worse than a service that says why it
+# will not come up.
+#
+# Everything here is a *wiring* fact — where the hardware is on this particular
+# board. The bench-calibrated control values (neutral duty, charge ceiling,
+# per-mode budgets) are not here; they live in `InflationParams` in
+# `crates/bridge/src/inflation.rs`.
+
+# ── Radar: the IWR6843's data UART ───────────────────────────────────────────
+[radar]
+# The sensor is on its USB virtual COM port, so both of its UARTs enumerate. An
+# XDS110 ISK/BoosterPack presents the CLI port first and the data port second
+# (`/dev/ttyACM0` and `/dev/ttyACM1`); a bare FTDI cable gives
+# `/dev/ttyUSB0`/`/dev/ttyUSB1` instead. Check `dmesg` after plugging in.
+data_port = "/dev/ttyACM1"
+baud_rate = 921600
+
+# Must match the firmware currently flashed on the sensor:
+#   "out-of-box"  — factory mmWave demo, Cartesian point TLVs
+#   "vital-signs" — Radar Toolbox Vital Signs With People Tracking demo
+protocol = "out-of-box"
+
+# Hard allocation bound for a declared UART packet, in bytes.
+max_packet_length = 1048576
+
+# ── Pneumatics: the two symmetric sections ───────────────────────────────────
+[pneumatics]
+# The breath carrier, in Hz. Both sections run it — two halves breathing at
+# different rates is exactly the beat frequency a person notices — so there is
+# one key here, not two.
+#
+# The usable band is 20–50 Hz: below it the pulsing is felt and heard as
+# individual clicks, above it the valve armature cannot complete a cycle per
+# period and the duty stops meaning an intake/exhaust ratio. Values outside the
+# band are accepted but warned about, since a bench with faster valves is a real
+# reason to leave it.
+pwm_hz = 40
+
+# Which `/sys/class/pwm/pwmchip{chip}/pwm{channel}` backs each section:
+#
+#   Section A  TIM4_CH2  PA1  connector pin 33
+#   Section B  TIM5_CH1  PH8  connector pin 31
+#
+# `pwm-stm32` numbers channels by the TIMER's own channel index — CH1 is `pwm0`,
+# CH2 is `pwm1` — regardless of how many the device tree exposes, which is why
+# section A sits on channel 1 and section B on channel 0.
+#
+# The CHIP indices come from probe order and are not stable across kernel or
+# device-tree changes. Re-derive them on a live board with:
+#
+#     for chip in /sys/class/pwm/pwmchip*; do \
+#       echo "$chip -> $(readlink -f "$chip/device")"; done
+#
+# `40020000.timer` is TIM4 (section A); `40030000.timer` is TIM5 (section B).
+# See hardware/pneumatics/README.md.
+section_a = { chip = 4, channel = 1 }
+section_b = { chip = 8, channel = 0 }
+
+# ── Fatigue: the ONNX model ──────────────────────────────────────────────────
+[fatigue]
+# Built by `network/` (`just net-train`) and deployed here. Absent or
+# unloadable, the binary still publishes vitals and status — it just runs
+# without fatigue, and therefore without actuation.
+model_path = "/opt/snf/fatigue.onnx"
+
+# Reported to clients as the Fatigue payload's `model_revision`. Bump it
+# whenever `model_path` is replaced, so a client can tell two models apart.
+# 1 was the stub that always answered "level 0"; 2 is the first real graph.
+revision = 2
+
+# ── BLE ──────────────────────────────────────────────────────────────────────
+[ble]
+# Which BlueZ adapter to advertise on: "hci0", "hci1", … Leave it out (as here)
+# to take BlueZ's default adapter, which is what a board with one radio wants.
+# adapter = "hci0"

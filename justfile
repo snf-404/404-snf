@@ -32,6 +32,23 @@ test:
 build:
     csti build --manifest Consortium.toml
 
+# ── Fatigue model (network/) ─────────────────────────────────────────────────
+# Trained on the macOS host with `uv` + MPS, not in the Linux container: there
+# is no GPU there and no reason to put PyTorch in a Rust build image. Only the
+# 8 KB `.onnx` crosses over.
+
+# Simulate, fit, evaluate, export and verify `network/out/fatigue.onnx`.
+net-train *ARGS:
+    cd network && uv run train.py {{ ARGS }}
+
+# Re-export the checkpoint without retraining.
+net-export:
+    cd network && uv run export.py
+
+# Copy the trained model to a board. `just net-deploy root@192.168.1.50`.
+net-deploy target:
+    scp network/out/fatigue.onnx {{ target }}:/opt/snf/fatigue.onnx
+
 # ── JavaScript tooling + Lingguang app ───────────────────────────────────────
 
 # Install repository-level Vite+ tooling.

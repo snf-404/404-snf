@@ -129,6 +129,14 @@ pub mod fatigue_flags {
     pub const VALID: u16 = 1 << 0;
     pub const WARMING_UP: u16 = 1 << 1;
     pub const INSUFFICIENT_INPUT: u16 = 1 << 2;
+    /// The model was too unsure of this verdict for the device to act on it.
+    ///
+    /// The `level` field is still populated and still meaningful as a reading —
+    /// this flag says the device did not *use* it, not that it is absent. A
+    /// client should present it as provisional rather than driving anything from
+    /// it. Set whenever `confidence` falls below the actuation floor in
+    /// `snf_bridge::confidence`.
+    pub const LOW_CONFIDENCE: u16 = 1 << 3;
 }
 
 /// Stream mask bits shared by Stream Control and Device Status

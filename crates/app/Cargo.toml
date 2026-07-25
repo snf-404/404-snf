@@ -26,7 +26,10 @@ snf-shared  = { path = "../shared" }
 # COM port, so the radar is a Linux tty and `RadarStream` reads it directly.
 snf-radar   = { path = "../radar", features = ["vital-signs"] }
 snf-ble     = { path = "../ble" }
-snf-fatigue = { path = "../fatigue" }
+# `ort` turns on real ONNX inference. It is off by default in `snf-fatigue` so
+# that crate stays checkable on a macOS dev host; this is the build that has an
+# ONNX Runtime, so this is where it goes on.
+snf-fatigue = { path = "../fatigue", features = ["ort"] }
 snf-bridge  = { path = "../bridge" }
 
 # Named directly by the generated `consortium.gen.rs`.
@@ -42,6 +45,9 @@ consortium-log = { path = "../../../consortium/crates/consortium-log", features 
 # Application runtime.
 serde              = { version = "1", features = ["derive"] }
 tokio              = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+# `Repose.toml` beside the binary: which tty, which pwmchips, which model. Parse
+# only — nothing here ever writes TOML back out, so `display` stays off.
+toml               = { version = "1", default-features = false, features = ["std", "serde", "parse"] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

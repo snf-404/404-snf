@@ -6,10 +6,14 @@
 //!
 //! 1. reads IWR6843 frames via [`snf_radar`] over the sensor's USB virtual COM
 //!    port — the radar is a Linux tty, so this is a plain `tokio-serial` read,
-//! 2. extracts indicators and classifies fatigue via [`snf_fatigue`] (ONNX),
-//! 3. drives the pneumatics directly — pump on `TIM4_CH2`, vent valve on
-//!    `TIM5_CH1`, both through FR120N MOSFET modules (see [`pneumatics`] /
-//!    [`fr120n`] / [`sysfs_pwm`]), and
+//! 2. extracts indicators, windows them into model features via
+//!    [`snf_bridge::features`], and classifies fatigue via [`snf_fatigue`]
+//!    (ONNX) — then decides through [`snf_bridge::confidence`] how much of that
+//!    verdict the actuators are allowed to see,
+//! 3. turns that fatigue level into a deformation through
+//!    [`snf_bridge::inflation`] and drives the pneumatics directly — two
+//!    symmetric sections on `TIM4_CH2` and `TIM5_CH1`, both through FR120N
+//!    MOSFET modules (see [`pneumatics`] / [`fr120n`] / [`sysfs_pwm`]), and
 //! 4. publishes vitals, fatigue and status over BLE via [`snf_ble`] (BlueZ).
 //!
 //! So the whole data path is on this core. TIM4/TIM5 are reachable only from the
@@ -39,51 +43,35 @@ use snf_ble::{
     BleTransport, Telemetry,
     protocol::{ProtocolInfo, capabilities, streams},
 };
-use snf_bridge::{Accounting, StreamState, map};
+use snf_bridge::{
+    Accounting, FeatureExtractor, StreamState, Trust, confidence,
+    inflation::{Actuation, InflationController, InflationMode},
+    map,
+};
 use snf_fatigue::FatigueModel;
 use snf_radar::{IndicatorEngine, RadarConfig, RadarFrame, RadarStream};
 use snf_shared::{RadarControl, RadarReport};
 
+mod config;
 mod fr120n;
 mod pneumatics;
 mod sysfs_pwm;
 
-use pneumatics::{PneumaticConfig, PneumaticState, Pneumatics};
+use pneumatics::{PneumaticState, Pneumatics};
 
-/// Path to the ONNX fatigue model on the deployed image.
-const MODEL_PATH: &str = "/opt/snf/fatigue.onnx";
-/// Revision reported in the Fatigue payload's `model_revision`.
-const MODEL_REVISION: u32 = 1;
 /// Firmware build id for Protocol Info; `0` until wired to the build system.
 const BUILD_ID: u32 = 0;
-/// Fatigue level at or above which the pneumatics are asked to actuate.
-const FATIGUE_ALERT_LEVEL: u8 = 70;
 /// Device Status notify period (`PROTOCOL.md` §13 default: 1 Hz).
 const STATUS_PERIOD: Duration = Duration::from_secs(1);
 /// How often the pneumatic state is re-evaluated. Independent of the radar so
-/// [`MAX_INFLATE`] still expires if frames stop mid-inflation.
+/// the inflation budgets and ceilings in
+/// [`InflationController`](snf_bridge::inflation::InflationController) still
+/// advance if frames stop mid-inflation.
 const ACTUATOR_PERIOD: Duration = Duration::from_millis(100);
 /// Streams this build can serve: no pose model yet, so `POSE_3D` stays clear.
 const DEVICE_CAPABILITIES: u32 = capabilities::VITALS | capabilities::FATIGUE;
 /// Upper bound on point-cloud points advertised in Protocol Info.
 const MAX_POINTS: u8 = 96;
-/// IWR6843 data port.
-///
-/// The sensor is wired over its USB virtual COM, so both of its UARTs enumerate
-/// on Linux: the XDS110 on an ISK/BoosterPack presents the CLI port first and
-/// the data port second (`/dev/ttyACM0` and `/dev/ttyACM1`). A bare FTDI cable
-/// instead gives `/dev/ttyUSB0`/`/dev/ttyUSB1` — check `dmesg` after plugging in.
-const RADAR_DATA_PORT: &str = "/dev/ttyACM1";
-
-/// Pump duty while inflating, as a percentage.
-const PUMP_DUTY_PERCENT: u8 = 70;
-/// Hard ceiling on one uninterrupted inflation.
-///
-/// There is no pressure sensor in the loop yet and no independent interlock
-/// behind it, so this bounds how much air a stuck alert — or a run killed
-/// mid-inflation — can put into the bladder. After it elapses the pump stops and
-/// the valve holds until the alert clears.
-const MAX_INFLATE: Duration = Duration::from_secs(6);
 
 /// A best-effort boot identifier that changes across restarts, so clients can
 /// detect a reboot and flush per-sequence state (`PROTOCOL.md` §14).
@@ -107,15 +95,15 @@ enum RadarEvent {
     Gap,
 }
 
-/// What the pneumatics should be doing, given the current alert and how long it
-/// has been asserted.
-fn desired_state(alert_since: Option<Instant>, now: Instant) -> PneumaticState {
-    match alert_since {
-        None => PneumaticState::Vent,
-        Some(since) if now.duration_since(since) < MAX_INFLATE => {
-            PneumaticState::Inflate(PUMP_DUTY_PERCENT)
-        }
-        Some(_) => PneumaticState::Hold,
+/// Translate the control model's decision into the actuator pair's state.
+///
+/// The two enums are deliberately separate: `snf-bridge` decides *what should
+/// happen* without knowing there is a MOSFET on the other end, and this crate
+/// owns everything about how the two sections are driven.
+fn pneumatic_state(actuation: Actuation) -> PneumaticState {
+    match actuation {
+        Actuation::Vent => PneumaticState::Vent,
+        Actuation::Cycle(duty) => PneumaticState::Cycle(duty),
     }
 }
 
@@ -137,6 +125,19 @@ async fn main(mut context: Context) {
     tracing_subscriber::fmt::init();
     tracing::info!("snf-app: CA35 application started; IPC bring-up complete");
 
+    // ── Where the hardware is ────────────────────────────────────────────────
+    // `Repose.toml` beside the binary, or the compiled-in defaults if there is
+    // none. A file that exists but cannot be honoured stops here rather than
+    // being partly applied — see `config` for why the two cases differ.
+    let config = match config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!("snf-app: configuration error: {e}");
+            return;
+        }
+    };
+    config.log_summary();
+
     // ── BLE peripheral: advertise and serve the SNF telemetry service ────────
     let info = ProtocolInfo {
         capabilities: DEVICE_CAPABILITIES,
@@ -146,7 +147,7 @@ async fn main(mut context: Context) {
         boot_id: boot_id(),
         build_id: BUILD_ID,
     };
-    let mut ble = snf_ble::BluezPeripheral::new(None, info);
+    let mut ble = snf_ble::BluezPeripheral::new(config.ble.adapter.clone(), info);
     if let Err(e) = ble.start().await {
         tracing::error!("snf-app: BLE start failed: {e}");
         return;
@@ -157,11 +158,11 @@ async fn main(mut context: Context) {
     let mut stream_state = StreamState::default();
     let mut accounting = Accounting::new(stream_state.stream_mask);
 
-    // ── Pneumatics: pump on TIM4_CH2, vent valve on TIM5_CH1 ─────────────────
+    // ── Pneumatics: symmetric sections on TIM4_CH2 and TIM5_CH1 ──────────────
     // Optional: without the PWM chips (wrong device tree, wrong chip index) the
     // sensing half is still worth running, so this degrades to telemetry-only
     // rather than refusing to start.
-    let mut pneumatics = match Pneumatics::open(PneumaticConfig::default()) {
+    let mut pneumatics = match Pneumatics::open(config.pneumatics.into()) {
         Ok(pneumatics) => Some(pneumatics),
         Err(e) => {
             tracing::warn!("snf-app: pneumatics unavailable ({e}); running without actuation");
@@ -176,14 +177,12 @@ async fn main(mut context: Context) {
     check_cm33_link(&mut context).await;
 
     // ── Radar pipeline: read frames in a task, extract indicators here ───────
-    let radar_config = RadarConfig {
-        data_port: RADAR_DATA_PORT.to_string(),
-        ..RadarConfig::default()
-    };
+    let radar_config: RadarConfig = config.radar.clone().into();
+    let data_port = radar_config.data_port.clone();
     let radar = match RadarStream::open(radar_config) {
         Ok(radar) => radar,
         Err(e) => {
-            tracing::error!("snf-app: radar open on {RADAR_DATA_PORT} failed: {e}");
+            tracing::error!("snf-app: radar open on {data_port} failed: {e}");
             return;
         }
     };
@@ -191,11 +190,18 @@ async fn main(mut context: Context) {
     tokio::spawn(read_radar(radar, frame_tx));
     let mut indicators = IndicatorEngine::default();
 
+    // The rolling window and personal baselines the model reads. Fed at the
+    // vitals rate, which is what `network/` trained against.
+    let mut features = FeatureExtractor::new();
+
     // Fatigue is optional: without a model we still publish vitals and status.
-    let fatigue_model = match FatigueModel::load(MODEL_PATH) {
+    let mut fatigue_model = match FatigueModel::load(&config.fatigue.model_path) {
         Ok(model) => Some(model),
         Err(e) => {
-            tracing::warn!("snf-app: fatigue model unavailable ({e}); running without fatigue");
+            tracing::warn!(
+                "snf-app: fatigue model unavailable at {} ({e}); running without fatigue",
+                config.fatigue.model_path
+            );
             None
         }
     };
@@ -203,7 +209,17 @@ async fn main(mut context: Context) {
     let mut status_tick = tokio::time::interval(STATUS_PERIOD);
     let mut actuator_tick = tokio::time::interval(ACTUATOR_PERIOD);
     let mut last_vitals_at: Option<Instant> = None;
-    let mut alert_since: Option<Instant> = None;
+
+    // The fatigue → inflation-speed model: which deformation mode the current
+    // fatigue level calls for, how fast to approach it, and the hysteresis and
+    // charge ceilings that bound it. Canopy stays disarmed: it is the one mode
+    // that must not follow from fatigue alone, and Stream Control (`PROTOCOL.md`
+    // §12) has no opcode for the explicit user trigger yet.
+    let mut inflation = InflationController::default();
+    let mut last_mode = InflationMode::default();
+    // Whether verdicts are currently being withheld for low confidence. Tracked
+    // only so the transition is logged once instead of at the vitals rate.
+    let mut withholding = false;
 
     loop {
         tokio::select! {
@@ -232,18 +248,55 @@ async fn main(mut context: Context) {
 
                 // Fatigue drives both the BLE record and the pneumatics, so it
                 // runs whether or not anyone is subscribed to that stream.
-                if let Some(model) = &fatigue_model {
-                    match model.infer(&map::fatigue_features(&snapshot)) {
+                if let Some(model) = fatigue_model.as_mut() {
+                    match model.infer(&features.update(now, &snapshot)) {
                         Ok(verdict) => {
-                            let alert = verdict.level >= FATIGUE_ALERT_LEVEL;
-                            match (alert, alert_since) {
-                                (true, None) => alert_since = Some(now),
-                                (false, Some(_)) => alert_since = None,
-                                _ => {}
+                            // How sure the model is decides how much of the
+                            // verdict reaches the actuators. Below the floor the
+                            // controller is told nothing at all, so its own
+                            // `verdict_timeout` pins the sections to neutral —
+                            // an uncertain model makes the mat quieter, never
+                            // busier. See `snf_bridge::confidence`.
+                            match confidence::gate(verdict) {
+                                Trust::Applied { level, weight } => {
+                                    if withholding {
+                                        tracing::info!(
+                                            "snf-app: verdicts trusted again (confidence {:.2})",
+                                            verdict.confidence,
+                                        );
+                                        withholding = false;
+                                    }
+                                    tracing::trace!(
+                                        "snf-app: fatigue {} x {weight:.2} -> {level}",
+                                        verdict.level,
+                                    );
+                                    inflation.observe(now, level);
+                                }
+                                Trust::Withheld { reported_level } => {
+                                    // Logged on the transition only: at the
+                                    // vitals rate this would otherwise be two
+                                    // lines a second for as long as the radar
+                                    // cannot see well enough to be sure.
+                                    if !withholding {
+                                        tracing::info!(
+                                            "snf-app: withholding verdicts \
+                                             (level {reported_level}, confidence {:.2} < {:.2}); \
+                                             not actuating",
+                                            verdict.confidence,
+                                            confidence::ACTION_FLOOR,
+                                        );
+                                        withholding = true;
+                                    }
+                                }
                             }
 
+                            // Published either way, with `LOW_CONFIDENCE` set
+                            // when it was withheld — a client should see what
+                            // the model thought *and* that the device did not
+                            // act on it.
                             if stream_state.stream_mask & streams::FATIGUE != 0 {
-                                let payload = map::fatigue_telemetry(verdict, MODEL_REVISION);
+                                let payload =
+                                    map::fatigue_telemetry(verdict, config.fatigue.revision);
                                 if let Err(e) = ble.publish(Telemetry::Fatigue(payload), 0).await {
                                     tracing::warn!("snf-app: fatigue publish failed: {e}");
                                 }
@@ -273,20 +326,33 @@ async fn main(mut context: Context) {
             }
 
             // Apply the actuator state. On its own tick rather than inline with
-            // the fatigue verdict, so `MAX_INFLATE` still expires when the radar
-            // goes quiet mid-inflation.
+            // the fatigue verdict, so the budgets, the charge ceiling and the
+            // release dwell all keep running — and a stale verdict still pins
+            // the sections to neutral — when the radar goes quiet mid-inflation.
             _ = actuator_tick.tick() => {
+                let command = inflation.command(Instant::now());
+                if command.mode != last_mode {
+                    tracing::info!(
+                        "snf-app: inflation mode {last_mode:?} -> {:?} (speed {:.2})",
+                        command.mode,
+                        command.speed,
+                    );
+                    last_mode = command.mode;
+                }
+
                 let mut failed = false;
                 if let Some(actuators) = pneumatics.as_mut() {
-                    let desired = desired_state(alert_since, Instant::now());
+                    let desired = pneumatic_state(command.actuation);
                     if desired != actuators.state() {
                         match actuators.set_state(desired) {
                             Ok(()) => tracing::debug!("snf-app: pneumatics -> {desired:?}"),
                             Err(e) => {
                                 tracing::error!("snf-app: pneumatics write failed: {e}; venting");
-                                // A failed write leaves the pair in an unknown
-                                // combination. Vent once, then give up actuating
-                                // rather than keep poking a broken PWM chip.
+                                // `set_state` has already rolled both sections
+                                // back to vent — a half-applied write would
+                                // leave the mat lopsided. Confirm it, then give
+                                // up actuating rather than keep poking a broken
+                                // PWM chip.
                                 let _ = actuators.set_state(PneumaticState::Vent);
                                 failed = true;
                             }

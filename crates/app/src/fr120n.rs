@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Driver for an **FR120N** low-side N-channel MOSFET switch module, used here
-//! to drive the 24 V pneumatic pump and the vent solenoid from one PWM channel
+//! to drive the mat's two symmetric 24 V pneumatic sections from one PWM channel
 //! each.
 //!
 //! This replaces the TB6612FNG the scaffold started with: that part tops out at
@@ -16,10 +16,10 @@
 //! | forward / reverse / brake    | on / off only           |
 //! | coast vs. brake distinction  | none — the load coasts  |
 //!
-//! Both loads here are unidirectional (a diaphragm pump and a solenoid), so
-//! nothing is lost. What *is* lost is the H-bridge's electrical brake, and with
-//! it any way to stop the pump faster than its own friction — irrelevant for a
-//! pump, worth knowing if this driver is reused for something with inertia.
+//! Both loads here are unidirectional solenoids, so nothing is lost. What *is*
+//! lost is the H-bridge's electrical brake, and with it any way to stop a load
+//! faster than its own mechanics — irrelevant for a valve armature, worth
+//! knowing if this driver is reused for something with inertia.
 //!
 //! The module switches the **low side**: the load sits between +24 V and the
 //! module's output, and the MOSFET interrupts its return path. Consequences that
@@ -46,11 +46,13 @@
 //!
 //! # PWM frequency
 //!
-//! A bare-gate module's slow switching also bounds the usable PWM frequency: the
-//! MOSFET spends a large fraction of each edge in its linear region, and the
-//! dissipation scales with the edge rate. 1 kHz (audible, but forgiving) is the
-//! safe starting point on an unknown board; 20 kHz (inaudible) is fine only once
-//! the module is known to switch cleanly.
+//! A bare-gate module's slow switching bounds the usable PWM frequency from
+//! above: the MOSFET spends a large fraction of each edge in its linear region,
+//! and the dissipation scales with the edge rate. That is not the binding
+//! constraint here — the *load* is. The sections run at 40 Hz because the valve
+//! armature has to follow every period (see
+//! [`SECTION_PWM_HZ`](crate::pneumatics::SECTION_PWM_HZ)), which is two orders of
+//! magnitude below anything the gate has an opinion about.
 //!
 //! # Example
 //!
@@ -58,10 +60,10 @@
 //! use crate::fr120n::Fr120n;
 //! use crate::sysfs_pwm::SysfsPwm;
 //!
-//! // Pump on TIM4_CH2 (connector pin 33), exported as pwmchipN channel 0.
-//! let mut pump = Fr120n::new(SysfsPwm::new(0, 0, 1_000)?);
-//! pump.set_percent(70)?;  // inflate
-//! pump.off()?;            // coast to a stop
+//! // Section A on TIM4_CH2 (connector pin 33), exported as pwmchip4 channel 1.
+//! let mut section = Fr120n::new(SysfsPwm::new(4, 1, 40)?);
+//! section.set_percent(70)?;  // net inflate: more intake than exhaust per cycle
+//! section.off()?;            // line low — the valve opens and the section vents
 //! ```
 
 use embedded_hal::pwm::SetDutyCycle;

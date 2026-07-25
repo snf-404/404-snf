@@ -3,8 +3,8 @@
 //! Minimal Linux **sysfs PWM** adapter implementing [`SetDutyCycle`].
 //!
 //! On the CA35 the pneumatics are driven by the two Linux-owned timers that
-//! reach the DK's 40-pin connector — `TIM4_CH2` on `PA1` (pump) and `TIM5_CH1`
-//! on `PH8` (vent valve) — whose `pwm-stm32` providers appear under
+//! reach the DK's 40-pin connector — `TIM4_CH2` on `PA1` (section A) and
+//! `TIM5_CH1` on `PH8` (section B) — whose `pwm-stm32` providers appear under
 //! `/sys/class/pwm/pwmchipN/`. This wraps one exported channel of such a chip
 //! and presents it to [`crate::fr120n`] through the embedded-hal 1.0
 //! [`SetDutyCycle`] trait, so the FR120N driver is identical whether its PWM

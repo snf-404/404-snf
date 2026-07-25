@@ -192,13 +192,27 @@ Status flags：
 
 固定 12 字节，只有 capability `FATIGUE` 存在时才发布。
 
-| Offset | Type  | 字段           | 说明                                                 |
-| -----: | ----- | -------------- | ---------------------------------------------------- |
-|      0 | `u8`  | level          | `0..100`                                             |
-|      1 | `u8`  | confidence     | `0..100`                                             |
-|      2 | `u16` | status_flags   | bit 0 valid，bit 1 warming，bit 2 insufficient input |
-|      4 | `u32` | model_revision | 模型版本或哈希缩写                                   |
-|      8 | `u32` | reserved       | `0`                                                  |
+| Offset | Type  | 字段           | 说明               |
+| -----: | ----- | -------------- | ------------------ |
+|      0 | `u8`  | level          | `0..100`           |
+|      1 | `u8`  | confidence     | `0..100`           |
+|      2 | `u16` | status_flags   | 见下表             |
+|      4 | `u32` | model_revision | 模型版本或哈希缩写 |
+|      8 | `u32` | reserved       | `0`                |
+
+`status_flags`：
+
+| Bit | 名称                 | 含义                                                  |
+| --: | -------------------- | ----------------------------------------------------- |
+|   0 | `VALID`              | 本次判定有效                                          |
+|   1 | `WARMING_UP`         | 模型仍在预热                                          |
+|   2 | `INSUFFICIENT_INPUT` | 输入不足以给出判定                                    |
+|   3 | `LOW_CONFIDENCE`     | 置信度低于执行阈值，设备**未**依据本次 level 进行驱动 |
+
+`confidence` 由模型输出分布的归一化熵得出，因此它与 `level`（同一分布的期望）来自
+同一处，不会互相矛盾。`LOW_CONFIDENCE` 置位时 `level` 仍然有效且应当显示，但客户端
+应将其视为暂定值：设备本身没有采信它。置信度介于执行阈值与完全采信阈值之间时，设备
+会按平滑权重**降级**执行（越不确定越保守），此时不置位该 bit。
 
 ## 9. Pose payload (`0x30`)
 

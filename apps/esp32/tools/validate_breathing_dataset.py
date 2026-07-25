@@ -23,7 +23,9 @@ def load_esp32_csv(path: pathlib.Path):
             if int(fields[5]) != 1:
                 continue
             timestamp_us = int(fields[18])
-            iq = [int(value) for value in line.split("[", 1)[1].split("]", 1)[0].split()]
+            iq = [
+                int(value) for value in line.split("[", 1)[1].split("]", 1)[0].split()
+            ]
             if len(iq) == 128:
                 rows.append((timestamp_us, iq))
     if not rows:
@@ -48,16 +50,21 @@ def evaluate(library, path: pathlib.Path):
             ctypes.byref(result),
         )
         outputs.append(
-            (bool(result.motion), bool(result.breathing_valid),
-             float(result.breathing_bpm), float(result.breathing_confidence))
+            (
+                bool(result.motion),
+                bool(result.breathing_valid),
+                float(result.breathing_bpm),
+                float(result.breathing_confidence),
+            )
         )
     return outputs
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("dataset", type=pathlib.Path,
-                        help="Path to pulse-wifi-sensing/data/breathing")
+    parser.add_argument(
+        "dataset", type=pathlib.Path, help="Path to pulse-wifi-sensing/data/breathing"
+    )
     parser.add_argument("--cc", default="gcc", help="Host C compiler")
     args = parser.parse_args()
 
@@ -82,17 +89,16 @@ def main() -> int:
         false_rate = sum(sample[1] for sample in negative_tail) / len(negative_tail)
         median_bpm = sorted(valid_bpms)[len(valid_bpms) // 2] if valid_bpms else 0.0
 
-        print(
-            f"paced 6 bpm: estimate={median_bpm:.2f} bpm "
-            f"valid={detection_rate:.3%}"
-        )
+        print(f"paced 6 bpm: estimate={median_bpm:.2f} bpm valid={detection_rate:.3%}")
         print(f"empty room: false breathing={false_rate:.3%}")
 
         if sys.platform == "win32":
             _ctypes.FreeLibrary(library._handle)
         del library
 
-    passed = abs(median_bpm - 6.0) <= 1.0 and detection_rate >= 0.75 and false_rate <= 0.10
+    passed = (
+        abs(median_bpm - 6.0) <= 1.0 and detection_rate >= 0.75 and false_rate <= 0.10
+    )
     return 0 if passed else 1
 
 
